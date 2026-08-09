@@ -1,0 +1,5 @@
+dependencies:
+  lvgl/lvgl: "^9.2"
+  # PlatformIO's framework-espidf package strips the built-in "json"
+  # (cJSON) component, so pull it from the component registry instead.
+  espressif/cjson: "^1.7"

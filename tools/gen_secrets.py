@@ -1,0 +1,163 @@
+"""
+PlatformIO pre-build script: reads .env (KEY=VALUE, one per line) and
+generates src/secrets.h with the values as C macros.
+
+.env is the single source of truth and is gitignored. src/secrets.h is
+generated on every build and is also gitignored -- never commit either file.
+See example.env for the full list of keys.
+"""
+import os
+
+Import("env")  # noqa: F821  (provided by PlatformIO at script execution time)
+
+PROJECT_DIR = env.get("PROJECT_DIR")  # noqa: F821
+ENV_PATH = os.path.join(PROJECT_DIR, ".env")
+OUT_PATH = os.path.join(PROJECT_DIR, "src", "secrets.h")
+
+REQUIRED_KEYS = ("BOT_TOKEN", "BOT_CHAT_ID", "WIFI_SSID", "WIFI_PASSWORD")
+
+# Optional: route the Telegram Bot API connection through a proxy.
+#
+# Only SOCKS5 is supported, and that is a protocol limitation rather than an
+# omission: an MTProto proxy relays Telegram's *client* protocol to Telegram's
+# data centres and cannot carry the plain HTTPS that the Bot API is built on.
+# Using one would mean implementing a full MTProto client (DH key exchange,
+# AES-IGE, TL serialisation, DC migration) instead of talking to
+# api.telegram.org over TLS, which is far beyond what this firmware does.
+PROXY_TYPE_KEY = "PROXY_TYPE"
+PROXY_TYPE_DEFAULT = "none"
+PROXY_TYPE_VALUES = ("none", "socks5")
+
+# Optional: hours to add to the (UTC) device clock when rendering message
+# timestamps. Defaults to Moscow time, matching the original pager.
+TZ_OFFSET_KEY = "TZ_OFFSET_HOURS"
+TZ_OFFSET_DEFAULT = 3
+
+
+def parse_env(path):
+    values = {}
+    if not os.path.isfile(path):
+        return values
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            values[key] = value
+    return values
+
+
+def c_string_literal(value):
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + escaped + '"'
+
+
+def resolve_proxy(values):
+    """Returns (enabled, host, port, user, password)."""
+    proxy_type = values.get(PROXY_TYPE_KEY, "").strip().lower() or PROXY_TYPE_DEFAULT
+
+    if proxy_type == "mtproto":
+        raise SystemExit(
+            "gen_secrets.py: PROXY_TYPE=mtproto is not supported.\n"
+            "An MTProto proxy speaks Telegram's client protocol and cannot relay the\n"
+            "plain HTTPS that the Bot API (api.telegram.org) uses. Use a SOCKS5 proxy\n"
+            "instead: PROXY_TYPE=socks5 with PROXY_HOST/PROXY_PORT (and optionally\n"
+            "PROXY_USER/PROXY_PASS)."
+        )
+    if proxy_type not in PROXY_TYPE_VALUES:
+        raise SystemExit(
+            "gen_secrets.py: PROXY_TYPE must be one of {}, got '{}'".format(
+                "/".join(PROXY_TYPE_VALUES), proxy_type
+            )
+        )
+    if proxy_type == "none":
+        return False, "", 0, "", ""
+
+    host = values.get("PROXY_HOST", "").strip()
+    port = values.get("PROXY_PORT", "").strip()
+    if not host or not port:
+        raise SystemExit(
+            "gen_secrets.py: PROXY_TYPE=socks5 requires PROXY_HOST and PROXY_PORT in .env"
+        )
+    try:
+        port = int(port)
+    except ValueError:
+        raise SystemExit("gen_secrets.py: PROXY_PORT must be a number, got '{}'".format(port))
+    if not 1 <= port <= 65535:
+        raise SystemExit("gen_secrets.py: PROXY_PORT out of range: {}".format(port))
+
+    user = values.get("PROXY_USER", "").strip()
+    password = values.get("PROXY_PASS", "").strip()
+    # RFC 1929 length-prefixes both fields with a single byte.
+    for name, field in (("PROXY_USER", user), ("PROXY_PASS", password)):
+        if len(field.encode("utf-8")) > 255:
+            raise SystemExit("gen_secrets.py: {} must be at most 255 bytes".format(name))
+    if bool(user) != bool(password):
+        raise SystemExit(
+            "gen_secrets.py: set PROXY_USER and PROXY_PASS together, or neither "
+            "(for an unauthenticated SOCKS5 proxy)"
+        )
+
+    return True, host, port, user, password
+
+
+def main():
+    values = parse_env(ENV_PATH)
+    missing = [k for k in REQUIRED_KEYS if not values.get(k)]
+    if missing:
+        raise SystemExit(
+            "gen_secrets.py: missing required key(s) in .env: {}\n"
+            "Copy example.env to .env and fill it in.".format(", ".join(missing))
+        )
+
+    try:
+        chat_id = int(values["BOT_CHAT_ID"])
+    except ValueError:
+        raise SystemExit(
+            "gen_secrets.py: BOT_CHAT_ID must be a number, got '{}'".format(values["BOT_CHAT_ID"])
+        )
+
+    try:
+        tz_offset = int(values.get(TZ_OFFSET_KEY, TZ_OFFSET_DEFAULT))
+    except ValueError:
+        raise SystemExit("gen_secrets.py: {} must be a whole number of hours".format(TZ_OFFSET_KEY))
+
+    proxy_enabled, proxy_host, proxy_port, proxy_user, proxy_pass = resolve_proxy(values)
+
+    lines = [
+        "#pragma once",
+        "// Auto-generated by tools/gen_secrets.py from .env -- do not edit, do not commit.",
+        "",
+        "#define SECRET_BOT_TOKEN {}".format(c_string_literal(values["BOT_TOKEN"])),
+        # Only messages from this chat are shown/acknowledged; anyone else who
+        # finds the bot is ignored.
+        "#define SECRET_BOT_CHAT_ID {}LL".format(chat_id),
+        "#define SECRET_WIFI_SSID {}".format(c_string_literal(values["WIFI_SSID"])),
+        "#define SECRET_WIFI_PASSWORD {}".format(c_string_literal(values["WIFI_PASSWORD"])),
+        "",
+        "#define SECRET_TZ_OFFSET_HOURS {}".format(tz_offset),
+        "",
+        "#define SECRET_PROXY_ENABLED {}".format(1 if proxy_enabled else 0),
+        "#define SECRET_PROXY_HOST {}".format(c_string_literal(proxy_host)),
+        "#define SECRET_PROXY_PORT {}".format(proxy_port),
+        "// Empty user means the proxy is used without RFC 1929 authentication.",
+        "#define SECRET_PROXY_USER {}".format(c_string_literal(proxy_user)),
+        "#define SECRET_PROXY_PASS {}".format(c_string_literal(proxy_pass)),
+        "",
+    ]
+
+    os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
+    with open(OUT_PATH, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    if proxy_enabled:
+        print("gen_secrets.py: wrote {} (SOCKS5 via {}:{}{})".format(
+            OUT_PATH, proxy_host, proxy_port, ", authenticated" if proxy_user else ""))
+    else:
+        print("gen_secrets.py: wrote {} (direct connection, no proxy)".format(OUT_PATH))
+
+
+main()

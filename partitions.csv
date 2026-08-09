@@ -1,0 +1,7 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Single-app layout sized for this board's full 4MB flash. The default
+# ESP-IDF single-app table only gives the factory partition 1MB, which is
+# too small once LVGL + mbedTLS + WiFi are all linked in.
+nvs,      data, nvs,     ,        0x6000,
+phy_init, data, phy,     ,        0x1000,
+factory,  app,  factory, ,        3000K,

@@ -1,0 +1,33 @@
+# The board has no USB-UART bridge: the USB-C port is the ESP32-C6's own
+# USB Serial/JTAG peripheral. Logging to UART0 would send the console to pins
+# that go nowhere.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# LVGL: the UI draws with the generated Cyrillic fonts in src/pager_font_*.c,
+# but LVGL still needs one built-in font compiled in to use as its default.
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
+
+# 16-bit RGB565 framebuffer, byte-swapped manually in the flush callback
+# (do not also enable CONFIG_LV_COLOR_16_SWAP -- that would double-swap).
+CONFIG_LV_COLOR_DEPTH_16=y
+
+# Verify api.telegram.org against the bundled root store rather than a pinned
+# certificate, so an issuer rotation does not brick the pager.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Keep the full 16 kB TLS input buffer. Shrinking it saves RAM but makes the
+# connection fail whenever the peer sends a record larger than the buffer,
+# and api.telegram.org does send large records.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+
+# The pager task runs the TLS handshake, so app_main only needs enough room
+# to bring up the display and WiFi -- but the default is still tight.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# This board (Waveshare ESP32-C6-LCD-1.47) has 4MB flash, matching
+# board_upload.flash_size in platformio.ini.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
