@@ -55,10 +55,30 @@
 // on screen.
 #define APP_MSG_QUEUE_LEN     8
 // Bytes, not characters -- Cyrillic is two bytes per character in UTF-8, so
-// this holds roughly 160 Russian characters. Longer messages are truncated on
+// this holds roughly 500 Russian characters. Longer messages are truncated on
 // a character boundary.
-#define APP_MSG_TEXT_MAX      336
+//
+// This is what actually bounds how much of a long message can be read: the
+// body scrolls, but only over text that survived this cut. Raising it is not
+// free -- a pager_msg_t sits in every queue slot and in the poll batch, so the
+// cost is APP_MSG_QUEUE_LEN + APP_UPDATES_PER_POLL times any increase, and
+// neither of those buffers may go back onto a task stack.
+#define APP_MSG_TEXT_MAX      1024
 #define APP_MSG_FROM_MAX      48
+
+// ---- UI -----------------------------------------------------------------
+// A message taller than the body area scrolls itself, hands-off: pause at the
+// top, creep down at this speed, pause at the bottom, glide back up, repeat.
+// The BOOT key is the acknowledge button and nothing else, so self-scrolling
+// is the only way a long page can be read in full.
+// Pixels per second of the downward crawl. The body font is 20px tall, so this
+// is roughly one line every 1.3 s.
+#define UI_BODY_SCROLL_SPEED_PX_S   18
+// Dwell at the top before starting, and at the bottom before rewinding.
+#define UI_BODY_SCROLL_PAUSE_MS     1800
+// The rewind is a single quick glide, not a re-read, so it is a fixed time
+// rather than a speed.
+#define UI_BODY_SCROLL_RETURN_MS    500
 
 // ---- Telegram Bot API ---------------------------------------------------
 #define TELEGRAM_API_HOST     "api.telegram.org"

@@ -10,14 +10,12 @@
 
 #include "app_config.h"
 #include "secrets.h"
+#include "ui_strings.h"
 
 static const char *TAG = "telegram";
 
 // "/bot" + token + longest method name.
 #define TELEGRAM_PATH_MAX 128
-
-// Shown when a message carries no text at all (a sticker, a location, ...).
-#define TELEGRAM_NO_TEXT_PLACEHOLDER "[вложение без текста]"
 
 static void build_path(char *buf, size_t size, const char *method)
 {
@@ -196,7 +194,7 @@ esp_err_t telegram_poll(int64_t *offset, https_abort_fn abort_fn, void *abort_ct
         if (!text) {
             text = json_string(message, "caption");
         }
-        copy_utf8(msg->text, sizeof(msg->text), text ? text : TELEGRAM_NO_TEXT_PLACEHOLDER);
+        copy_utf8(msg->text, sizeof(msg->text), text ? text : STR_NO_TEXT_PLACEHOLDER);
 
         (*out_count)++;
     }

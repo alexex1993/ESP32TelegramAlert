@@ -33,6 +33,13 @@ PROXY_TYPE_VALUES = ("none", "socks5")
 TZ_OFFSET_KEY = "TZ_OFFSET_HOURS"
 TZ_OFFSET_DEFAULT = 3
 
+# Optional: language of the strings the firmware itself puts on screen and in
+# its receipts. Message text and sender names always come through from Telegram
+# as-is. The ids must match APP_LANG_* in src/ui_strings.h.
+LANGUAGE_KEY = "UI_LANGUAGE"
+LANGUAGE_DEFAULT = "english"
+LANGUAGE_IDS = {"english": 0, "russian": 1}
+
 
 def parse_env(path):
     values = {}
@@ -104,6 +111,18 @@ def resolve_proxy(values):
     return True, host, port, user, password
 
 
+def resolve_language(values):
+    """Returns (name, numeric id) for the interface language."""
+    language = values.get(LANGUAGE_KEY, "").strip().lower() or LANGUAGE_DEFAULT
+    if language not in LANGUAGE_IDS:
+        raise SystemExit(
+            "gen_secrets.py: {} must be one of {}, got '{}'".format(
+                LANGUAGE_KEY, "/".join(sorted(LANGUAGE_IDS)), language
+            )
+        )
+    return language, LANGUAGE_IDS[language]
+
+
 def main():
     values = parse_env(ENV_PATH)
     missing = [k for k in REQUIRED_KEYS if not values.get(k)]
@@ -125,6 +144,8 @@ def main():
     except ValueError:
         raise SystemExit("gen_secrets.py: {} must be a whole number of hours".format(TZ_OFFSET_KEY))
 
+    language, language_id = resolve_language(values)
+
     proxy_enabled, proxy_host, proxy_port, proxy_user, proxy_pass = resolve_proxy(values)
 
     lines = [
@@ -140,6 +161,11 @@ def main():
         "",
         "#define SECRET_TZ_OFFSET_HOURS {}".format(tz_offset),
         "",
+        "// Interface language, picks the table in src/ui_strings.h: {}.".format(
+            ", ".join("{} = {}".format(v, k) for k, v in sorted(LANGUAGE_IDS.items(), key=lambda kv: kv[1]))
+        ),
+        "#define SECRET_UI_LANGUAGE_ID {} // {}".format(language_id, language),
+        "",
         "#define SECRET_PROXY_ENABLED {}".format(1 if proxy_enabled else 0),
         "#define SECRET_PROXY_HOST {}".format(c_string_literal(proxy_host)),
         "#define SECRET_PROXY_PORT {}".format(proxy_port),
@@ -154,10 +180,11 @@ def main():
         f.write("\n".join(lines))
 
     if proxy_enabled:
-        print("gen_secrets.py: wrote {} (SOCKS5 via {}:{}{})".format(
-            OUT_PATH, proxy_host, proxy_port, ", authenticated" if proxy_user else ""))
+        connection = "SOCKS5 via {}:{}{}".format(
+            proxy_host, proxy_port, ", authenticated" if proxy_user else "")
     else:
-        print("gen_secrets.py: wrote {} (direct connection, no proxy)".format(OUT_PATH))
+        connection = "direct connection, no proxy"
+    print("gen_secrets.py: wrote {} ({}, UI in {})".format(OUT_PATH, connection, language))
 
 
 main()

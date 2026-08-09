@@ -16,6 +16,7 @@
 #include "net_conn.h"
 #include "telegram.h"
 #include "ui.h"
+#include "ui_strings.h"
 
 static const char *TAG = "pager";
 
@@ -23,9 +24,6 @@ static const char *TAG = "pager";
 // far the deepest thing this task does.
 #define PAGER_TASK_STACK 10240
 #define PAGER_TASK_PRIO  4
-
-#define ACK_TEXT      "\xE2\x9C\x85 \xD0\x9F\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBE" // "✅ Прочитано"
-#define DELIVERED_TEXT "\xF0\x9F\x93\xA8 \xD0\x94\xD0\xBE\xD1\x81\xD1\x82\xD0\xB0\xD0\xB2\xD0\xBB\xD0\xB5\xD0\xBD\xD0\xBE" // "📨 Доставлено"
 
 typedef struct {
     int64_t chat_id;
@@ -45,16 +43,14 @@ static bool poll_should_abort(void *ctx)
 
 static void idle_status(void)
 {
-    ui_set_status(net_conn_uses_proxy()
-                      ? "Ожидание сообщений (SOCKS5)"
-                      : "Ожидание сообщений");
+    ui_set_status(net_conn_uses_proxy() ? STR_WAITING_PROXY : STR_WAITING);
 }
 
 static void on_button_press(void)
 {
     pager_msg_t msg;
     if (!msg_queue_pop(&msg)) {
-        ui_set_status("Нечего подтверждать");
+        ui_set_status(STR_NOTHING_TO_ACK);
         return;
     }
 
@@ -64,10 +60,10 @@ static void on_button_press(void)
     ack_req_t ack = { .chat_id = msg.chat_id, .message_id = msg.message_id };
     if (xQueueSend(s_ack_queue, &ack, 0) != pdTRUE) {
         ESP_LOGE(TAG, "ack queue full, receipt for %lld dropped", (long long)msg.message_id);
-        ui_set_status("Очередь подтверждений переполнена " LV_SYMBOL_WARNING);
+        ui_set_status(STR_ACK_QUEUE_FULL " " LV_SYMBOL_WARNING);
         return;
     }
-    ui_set_status("Отправляю «прочитано»...");
+    ui_set_status(STR_ACK_SENDING);
 }
 
 static void drain_acks(void)
@@ -76,7 +72,7 @@ static void drain_acks(void)
     while (xQueueReceive(s_ack_queue, &ack, 0) == pdTRUE) {
         esp_err_t err = ESP_FAIL;
         for (int attempt = 1; attempt <= APP_ACK_MAX_ATTEMPTS; attempt++) {
-            err = telegram_reply(ack.chat_id, ack.message_id, ACK_TEXT);
+            err = telegram_reply(ack.chat_id, ack.message_id, STR_RECEIPT_READ);
             if (err == ESP_OK) {
                 break;
             }
@@ -86,11 +82,11 @@ static void drain_acks(void)
         }
 
         if (err == ESP_OK) {
-            ui_set_status("Подтверждено " LV_SYMBOL_OK);
+            ui_set_status(STR_ACK_SENT " " LV_SYMBOL_OK);
         } else {
             // The message is already off the queue, so the receipt is simply
             // lost -- say so rather than pretending it went out.
-            ui_set_status("Подтверждение не доставлено " LV_SYMBOL_WARNING);
+            ui_set_status(STR_ACK_FAILED " " LV_SYMBOL_WARNING);
         }
     }
 }
@@ -105,7 +101,7 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
 
 #if APP_SEND_DELIVERY_RECEIPT
     for (int i = 0; i < count; i++) {
-        esp_err_t err = telegram_reply(batch[i].chat_id, batch[i].message_id, DELIVERED_TEXT);
+        esp_err_t err = telegram_reply(batch[i].chat_id, batch[i].message_id, STR_RECEIPT_DELIVERED);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "delivery receipt failed: %s", esp_err_to_name(err));
         }
@@ -113,7 +109,7 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
 #endif
 
     char status[64];
-    snprintf(status, sizeof(status), "Новых: %d  " LV_SYMBOL_BELL, count);
+    snprintf(status, sizeof(status), STR_NEW_MESSAGES_FMT "  " LV_SYMBOL_BELL, count);
     ui_set_status(status);
 }
 
@@ -122,7 +118,10 @@ static void pager_task(void *arg)
     ui_render_queue();
     idle_status();
 
-    pager_msg_t batch[APP_UPDATES_PER_POLL];
+    // Static, not a local: this is ~5 kB at APP_MSG_TEXT_MAX, and the same
+    // stack has to hold the TLS handshake and chain verification below.
+    // Only this task touches it, and there is only one of it.
+    static pager_msg_t batch[APP_UPDATES_PER_POLL];
 
     while (1) {
         drain_acks();
@@ -136,7 +135,7 @@ static void pager_task(void *arg)
             continue;
         }
         if (err != ESP_OK) {
-            ui_set_status("Нет связи с Telegram, повтор... " LV_SYMBOL_WARNING);
+            ui_set_status(STR_TELEGRAM_OFFLINE " " LV_SYMBOL_WARNING);
             vTaskDelay(pdMS_TO_TICKS(APP_POLL_ERROR_BACKOFF_MS));
             continue;
         }

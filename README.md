@@ -12,10 +12,11 @@ which drove an SSD1306 OLED via the FastBot library.
 
 - Long-polls the Telegram Bot API and pages every message from one allow-listed chat.
 - **Message queue** — up to 8 unread messages wait their turn; the header shows how many.
-- **BOOT key sends "✅ Прочитано"** as a reply to the message on screen, then advances to the next one.
-- Replies "📨 Доставлено" the moment a message arrives (as the original pager did).
-- **Cyrillic** throughout, read **horizontally**: the panel runs rotated to 320×172 so
-  Russian sentences wrap across the long edge instead of down a narrow column.
+- **BOOT key sends "✅ Read"** as a reply to the message on screen, then advances to the next one.
+- Replies "📨 Delivered" the moment a message arrives (as the original pager did).
+- **English or Russian interface**, picked in `.env` — see below.
+- **Cyrillic** message text throughout, read **horizontally**: the panel runs rotated to
+  320×172 so Russian sentences wrap across the long edge instead of down a narrow column.
 - Optional **SOCKS5 proxy**, with username/password authentication, for the
   Telegram connection.
 
@@ -41,6 +42,21 @@ Pins live in `src/app_config.h`. If the image comes out upside down, flip
 4. `pio device monitor`
 
 `src/secrets.h` is generated from `.env` before every build. Both are gitignored.
+
+### Language
+
+```ini
+UI_LANGUAGE=english   # or: russian
+```
+
+This picks the language of everything the device itself writes — the status
+line, the "no new messages" placeholder, and the "read"/"delivered" receipts it
+sends back to the chat. Message text and sender names always arrive from
+Telegram as-is, so a device built with `english` still displays Russian
+messages normally.
+
+The choice is made at compile time, so changing it means a rebuild and reflash.
+The strings themselves are in `src/ui_strings.h`, one block per language.
 
 ### Proxy
 
@@ -73,6 +89,7 @@ point of having one.
 | `msg_queue.c` | the bounded FIFO of unread messages |
 | `button.c` | debounced BOOT key |
 | `ui.c`, `display.c` | LVGL screen and the rotated ST7789 |
+| `ui_strings.h` | every user-facing string, one block per language |
 | `pager_font_*.c` | generated fonts — see below |
 
 A few decisions worth knowing about:
@@ -92,7 +109,8 @@ A few decisions worth knowing about:
 ## Fonts
 
 LVGL's built-in Montserrat fonts are ASCII-only and would render Russian as
-boxes. `src/pager_font_14.c` and `src/pager_font_20.c` are generated from the
-same Montserrat face plus a few FontAwesome icons, with the Cyrillic block
-included. They are committed, so a normal build does not regenerate them; run
+boxes — including Russian *messages* on an English-language build, which is why
+the Cyrillic block is always there. `src/pager_font_14.c` and
+`src/pager_font_20.c` are generated from the same Montserrat face plus a few
+FontAwesome icons, with that block included. They are committed, so a normal build does not regenerate them; run
 `tools/gen_fonts.sh` (needs Node.js) after changing sizes or ranges.

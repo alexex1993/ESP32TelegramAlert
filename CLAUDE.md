@@ -27,8 +27,8 @@ and verification is on-device via the serial monitor.
 A build requires `.env` (copy from `example.env`). `tools/gen_secrets.py` runs as
 a PlatformIO pre-build script and regenerates `src/secrets.h` from it every time;
 both files are gitignored and must never be committed or hand-edited. The script
-hard-fails on missing keys, a non-numeric `BOT_CHAT_ID`, a half-filled proxy
-config, or `PROXY_TYPE=mtproto`.
+hard-fails on missing keys, a non-numeric `BOT_CHAT_ID`, an unknown
+`UI_LANGUAGE`, a half-filled proxy config, or `PROXY_TYPE=mtproto`.
 
 `.clangd` points at `.pio/build/esp32-c6-lcd-1_47/compile_commands.json`, so run
 a build once before expecting editor completion on ESP-IDF/LVGL headers.
@@ -76,7 +76,13 @@ load-bearing and shouldn't be "cleaned up".
 - **Timestamps come from Telegram's `date` field**, shifted by
   `TZ_OFFSET_HOURS`, so `[HH:MM]` is correct even when SNTP never answered.
 - **Text is UTF-8 and truncated on character boundaries** (`copy_utf8` in
-  `telegram.c`). `APP_MSG_TEXT_MAX` is bytes; Cyrillic is 2 bytes/char.
+  `telegram.c`). `APP_MSG_TEXT_MAX` is bytes; Cyrillic is 2 bytes/char. This,
+  not the body scroll, is what caps how much of a long message is readable — a
+  cut here looks on screen exactly like a scroll that stops early. A
+  `pager_msg_t` is big enough that neither the queue slots nor `pager_task`'s
+  poll batch may live on a stack; the batch is `static` for that reason, and
+  the button task's stack is sized for the two that the press path holds live
+  at once.
 
 ### Display and fonts
 
@@ -87,15 +93,29 @@ swap + one mirror), not by LVGL software rotation. That is why
 set `BOARD_LCD_SELFTEST` to 1 there to separate "panel addressing wrong" from
 "fault above the driver".
 
+The message body is a scrollable container (`s_body_view`) wrapping the label,
+not a bare label, because a message taller than the ~100 px body area would
+otherwise be clipped with no way to reach the rest — the BOOT key is the
+acknowledge button and there is no touch. `body_restart_scroll()` in `ui.c`
+measures the overflow after the text changes and, if there is any, animates
+`scroll_y` on a loop: pause, linear crawl down, pause, quick rewind. It is
+restarted only when the *head of the queue* changes, keyed on
+(`chat_id`, `message_id`); `ui_render_queue()` also runs for repaints that leave
+the head alone, and restarting on those would jerk the text back mid-read.
+Because of that short-circuit, `ui_init` has to paint the empty-queue state
+itself. Speed and dwell live in `app_config.h` as `UI_BODY_SCROLL_*`.
+
 `src/pager_font_14.c` / `pager_font_20.c` are generated and **committed** —
 normal builds do not regenerate them. LVGL's stock Montserrat fonts are
-ASCII-only and would render the Russian UI as boxes. If regenerating, keep
+ASCII-only and would render Russian message text as boxes, which is true no
+matter which `UI_LANGUAGE` the firmware was built with. If regenerating, keep
 `--no-compress`: LVGL decodes compressed glyph bitmaps only with
 `CONFIG_LV_USE_FONT_COMPRESSED`, which is off.
 
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning.
+- `src/ui_strings.h` — the per-language string tables (see below).
 - `sdkconfig.defaults` — console over USB-Serial-JTAG (the board has no UART
   bridge), `LV_COLOR_DEPTH_16` with a manual byte swap in the flush callback (do
   not also enable `LV_COLOR_16_SWAP`), full mbedTLS cert bundle and 16 kB TLS
@@ -107,10 +127,24 @@ ASCII-only and would render the Russian UI as boxes. If regenerating, keep
 
 ## UI strings
 
-All user-facing strings on the display are Russian, written as UTF-8 literals in
-source (`ui.c`, `pager_task.c`). Receipt texts in `pager_task.c` are spelled as
-escaped byte sequences with the readable form in a trailing comment — keep both
-in sync when editing.
+Every string the firmware itself produces lives in `src/ui_strings.h` as one
+`STR_*` macro per language block; nothing user-facing belongs in a `.c` file.
+`UI_LANGUAGE` in `.env` (`english`, the default, or `russian`) picks the block
+at compile time via `SECRET_UI_LANGUAGE_ID`, so only one table is ever built —
+there is no runtime language switch and no lookup table. Adding a string means
+adding it to *both* blocks; a missing one is a compile error, which is the point.
+
+Two conventions inside that header:
+
+- Receipt texts (`STR_RECEIPT_READ`, `STR_RECEIPT_DELIVERED`) are spelled as
+  escaped byte sequences with the readable form in a trailing comment — keep
+  both in sync when editing.
+- `LV_SYMBOL_*` icons are concatenated at the call sites, not baked into the
+  macros, so the header stays free of an LVGL dependency (`telegram.c` includes
+  it).
+
+Message text and sender names come from Telegram untouched, so the fonts keep
+the Cyrillic block whatever `UI_LANGUAGE` says.
 
 ## Proxy
 

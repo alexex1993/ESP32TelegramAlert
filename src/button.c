@@ -12,7 +12,10 @@
 static const char *TAG = "button";
 
 #define BUTTON_POLL_MS      10
-#define BUTTON_TASK_STACK   3072
+// The press callback runs on this task and holds a popped pager_msg_t live
+// across ui_render_queue(), which peeks another one -- two APP_MSG_TEXT_MAX
+// buffers on the stack at once.
+#define BUTTON_TASK_STACK   6144
 #define BUTTON_TASK_PRIO    3
 
 static button_press_cb_t s_on_press;

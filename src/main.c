@@ -9,6 +9,7 @@
 #include "msg_queue.h"
 #include "pager_task.h"
 #include "ui.h"
+#include "ui_strings.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "main";
@@ -41,15 +42,15 @@ void app_main(void)
 
     lv_display_t *disp = display_init();
     ui_init(disp);
-    ui_set_status("Подключение к WiFi...");
+    ui_set_status(STR_WIFI_CONNECTING);
 
     if (wifi_manager_connect_blocking() != ESP_OK) {
-        ui_set_status("WiFi недоступен, перезагрузка...");
+        ui_set_status(STR_WIFI_FAILED);
         vTaskDelay(pdMS_TO_TICKS(10000));
         esp_restart();
     }
 
-    ui_set_status("Синхронизация времени...");
+    ui_set_status(STR_TIME_SYNCING);
     sync_time();
 
     pager_start();
