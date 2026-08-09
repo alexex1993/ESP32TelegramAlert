@@ -1,5 +1,9 @@
 # ESP32TelegramAlert
 
+<img width="1362" height="788" alt="image" src="https://github.com/user-attachments/assets/5c701e10-aea1-4739-8836-ceeec23b74d7" />
+
+[YOUTUBE DEMO](https://www.youtube.com/shorts/OFUGBKv261c)
+
 A Telegram pager for the **Waveshare ESP32-C6-LCD-1.47**: a bot forwards
 messages to the device, they queue up on the screen in landscape, and the
 board's BOOT key sends a "read" receipt back to the chat.
