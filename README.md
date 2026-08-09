@@ -77,40 +77,4 @@ point of having one.
 > would mean writing a full MTProto client — DH key exchange, AES-IGE, TL
 > serialisation, DC migration — rather than making an HTTPS request. Use SOCKS5.
 
-## How it works
-
-| File | Role |
-| --- | --- |
-| `main.c` | boot: NVS, display, WiFi, SNTP, then start the pager |
-| `pager_task.c` | the loop: drain receipts, long-poll, queue messages, repaint |
-| `telegram.c` | `getUpdates` / `sendMessage`, cJSON parsing, chat allow-list |
-| `https_client.c` | HTTPS over mbedTLS with an abort hook |
-| `net_conn.c`, `socks5.c` | TCP connect, and the SOCKS5 tunnel when configured |
-| `msg_queue.c` | the bounded FIFO of unread messages |
-| `button.c` | debounced BOOT key |
-| `ui.c`, `display.c` | LVGL screen and the rotated ST7789 |
-| `ui_strings.h` | every user-facing string, one block per language |
-| `pager_font_*.c` | generated fonts — see below |
-
-A few decisions worth knowing about:
-
-- **Pressing the button cuts the long poll short.** A receipt would otherwise sit
-  behind up to 25 seconds of idle polling, so a queued receipt makes the in-flight
-  `getUpdates` tear down and reconnect.
-- **Requests are HTTP/1.0.** That rules out chunked transfer-encoding, so reading
-  until the peer closes is an exact read of the body and the client needs no
-  chunk parser.
-- **The queue drops its oldest entry when full.** On a pager the newest page
-  matters most; dropped messages can no longer be acknowledged, so the header
-  counts them next to a warning icon.
-- **Timestamps come from Telegram**, not the device clock, so `[HH:MM]` is right
-  even when SNTP never answered. `TZ_OFFSET_HOURS` in `.env` shifts it (3 = Moscow).
-
-## Fonts
-
-LVGL's built-in Montserrat fonts are ASCII-only and would render Russian as
-boxes — including Russian *messages* on an English-language build, which is why
-the Cyrillic block is always there. `src/pager_font_14.c` and
-`src/pager_font_20.c` are generated from the same Montserrat face plus a few
-FontAwesome icons, with that block included. They are committed, so a normal build does not regenerate them; run
-`tools/gen_fonts.sh` (needs Node.js) after changing sizes or ranges.
+ (needs Node.js) after changing sizes or ranges.
