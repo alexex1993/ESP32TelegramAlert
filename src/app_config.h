@@ -82,7 +82,7 @@
 // which is why the nvs partition in partitions.csv is sized for
 // APP_MSG_QUEUE_LEN * sizeof(pager_msg_t) plus headroom (currently 64KB).
 //
-// The slots are a static array, so this costs sizeof(pager_msg_t) = 1096 bytes
+// The slots are a static array, so this costs sizeof(pager_msg_t) = 2120 bytes
 // of DRAM per slot whether or not anything is in it, and that DRAM comes
 // straight off the heap. Measured, linear: 8 slots leave 203 kB of heap, 32
 // leave 177 kB, 64 leave 143 kB, 128 leave 75 kB. The ceiling is not the
@@ -94,7 +94,7 @@
 // been up long enough to have shaken hands at least once.
 #define APP_MSG_QUEUE_LEN     32
 // Bytes, not characters -- Cyrillic is two bytes per character in UTF-8, so
-// this holds roughly 500 Russian characters. Longer messages are truncated on
+// this holds roughly 1000 Russian characters. Longer messages are truncated on
 // a character boundary.
 //
 // This is what actually bounds how much of a long message can be read: the
@@ -102,7 +102,7 @@
 // free -- a pager_msg_t sits in every queue slot and in the poll batch, so the
 // cost is APP_MSG_QUEUE_LEN + APP_UPDATES_PER_POLL times any increase, and
 // neither of those buffers may go back onto a task stack.
-#define APP_MSG_TEXT_MAX      1024
+#define APP_MSG_TEXT_MAX      2048
 #define APP_MSG_FROM_MAX      48
 
 // ---- UI -----------------------------------------------------------------

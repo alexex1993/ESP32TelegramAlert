@@ -3,11 +3,11 @@
 # ESP-IDF single-app table only gives the factory partition 1MB, which is
 # too small once LVGL + mbedTLS + WiFi are all linked in.
 #
-# nvs is oversized (64KB) on purpose: the message queue is persisted here
-# (one ~1KB blob per ring slot + a small meta blob, see msg_store.c), so
-# at APP_MSG_QUEUE_LEN=32 that is ~35KB of slots plus NVS' own page-table
+# nvs is oversized (192KB) on purpose: the message queue is persisted here
+# (one ~2KB blob per ring slot + a small meta blob, see msg_store.c), so
+# at APP_MSG_QUEUE_LEN=32 that is ~67KB of slots plus NVS' own page-table
 # and wear-leveling headroom. The factory app still fits -- flash ends at
-# 4MB and factory ends near 3MB, so growing nvs by 40KB leaves ~1MB free.
-nvs,      data, nvs,     ,        0x10000,
+# 4MB and factory ends near 3MB, so growing nvs still leaves ~870KB free.
+nvs,      data, nvs,     ,        0x30000,
 phy_init, data, phy,     ,        0x1000,
 factory,  app,  factory, ,        3000K,

@@ -120,6 +120,52 @@ static void log_mbedtls_error(const char *what, int ret)
     ESP_LOGE(TAG, "%s failed: -0x%04x (%s)", what, -ret, err_buf);
 }
 
+// ---- TLS session cache --------------------------------------------------
+// The pager polls Telegram roughly every APP_LONGPOLL_TIMEOUT_S, and without
+// this cache each poll is a full TLS handshake with the full certificate-chain
+// verification. Holding the negotiated session across requests lets mbedTLS
+// hand back the server-issued session ticket (RFC 5077) and run the abbreviated
+// handshake -- no key exchange, no chain walk. Tickets are compiled in
+// (CONFIG_MBEDTLS_CLIENT_SSL_SESSION_TICKETS) and the peer certificate is not
+// retained in the session (CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE is off), so
+// the cache is a couple of hundred bytes plus the ticket itself.
+//
+// Only the pager task ever drives the network stack (see pager_task.c: every
+// https_post_json comes out of telegram_poll/telegram_reply on that one task),
+// so the single slot needs no lock.
+static mbedtls_ssl_session s_session;
+static bool s_session_valid = false;
+
+static void drop_session(void)
+{
+    if (s_session_valid) {
+        mbedtls_ssl_session_free(&s_session);
+        memset(&s_session, 0, sizeof(s_session));
+        s_session_valid = false;
+    }
+}
+
+// Copies the just-negotiated session into the cache for the next connection.
+// A static mbedtls_ssl_session is zero-initialised, which matches what
+// mbedtls_ssl_session_init() produces, so no explicit init is needed before
+// the first use or after drop_session().
+static void cache_session(const mbedtls_ssl_context *ssl)
+{
+    mbedtls_ssl_session fresh;
+    mbedtls_ssl_session_init(&fresh);
+    int ret = mbedtls_ssl_get_session(ssl, &fresh);
+    if (ret != 0) {
+        log_mbedtls_error("mbedtls_ssl_get_session", ret);
+        mbedtls_ssl_session_free(&fresh);
+        return;
+    }
+    // Struct copy moves ownership of the ticket/digest allocations from the
+    // local into the cache; the local then goes out of scope without freeing.
+    drop_session();
+    s_session = fresh;
+    s_session_valid = true;
+}
+
 static esp_err_t ssl_write_all(mbedtls_ssl_context *ssl, wait_ctx_t *w,
                                 const char *data, size_t len)
 {
@@ -196,6 +242,12 @@ esp_err_t https_post_json(const https_request_t *req, int *out_status,
     // No RNG to wire up: mbedTLS 4 draws randomness from PSA crypto, which it
     // initialises itself on first use.
 
+    // Session tickets are enabled by default and compiled in via
+    // CONFIG_MBEDTLS_CLIENT_SSL_SESSION_TICKETS; set it explicitly so the
+    // resumption intent is visible at the call site and the cached session
+    // offered below is actually usable.
+    mbedtls_ssl_conf_session_tickets(&conf, MBEDTLS_SSL_SESSION_TICKETS_ENABLED);
+
     ret = mbedtls_ssl_setup(&ssl, &conf);
     if (ret != 0) {
         log_mbedtls_error("mbedtls_ssl_setup", ret);
@@ -211,16 +263,39 @@ esp_err_t https_post_json(const https_request_t *req, int *out_status,
     }
     mbedtls_ssl_set_bio(&ssl, &server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
 
+    // Offer the cached session so mbedTLS can do the abbreviated handshake. It
+    // falls back to a full handshake if the server declines the ticket, so
+    // offering is never what breaks an otherwise-working connection.
+    bool session_offered = false;
+    if (s_session_valid) {
+        ret = mbedtls_ssl_set_session(&ssl, &s_session);
+        if (ret != 0) {
+            // Non-fatal: proceed with a full handshake. The cached session may
+            // be unusable; drop it so the next attempt does not reuse it.
+            log_mbedtls_error("mbedtls_ssl_set_session", ret);
+            drop_session();
+        } else {
+            session_offered = true;
+        }
+    }
+
+    int64_t hs_start_us = esp_timer_get_time();
     while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
         if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             err = wait_for_socket(&wait, ret == MBEDTLS_ERR_SSL_WANT_WRITE);
             if (err != ESP_OK) {
+                // Timeout or abort: the handshake never got anywhere, so the
+                // cached session is still good -- keep it for the next poll.
                 goto cleanup;
             }
             continue;
         }
         log_mbedtls_error("TLS handshake", ret);
         err = ESP_FAIL;
+        // A hard handshake error may be the server rejecting a stale ticket
+        // with an alert. Drop the cache so the next attempt is a clean full
+        // handshake instead of failing the same way on every poll.
+        drop_session();
         goto cleanup;
     }
 
@@ -230,6 +305,14 @@ esp_err_t https_post_json(const https_request_t *req, int *out_status,
         err = ESP_FAIL;
         goto cleanup;
     }
+
+    int64_t hs_ms = (esp_timer_get_time() - hs_start_us) / 1000;
+    // Stash the negotiated session for the next request. The duration tells
+    // whether resumption took: a full handshake (key exchange + chain walk
+    // against the bundle) runs hundreds of ms; an abbreviated one is ~1 RTT.
+    cache_session(&ssl);
+    ESP_LOGI(TAG, "TLS handshake in %lld ms (%s)",
+             (long long)hs_ms, session_offered ? "ticket offered" : "full");
 
     size_t body_len = req->json_body ? strlen(req->json_body) : 0;
     char header[512];

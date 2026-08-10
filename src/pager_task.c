@@ -170,7 +170,7 @@ static void pager_task(void *arg)
     // carry the unread signal until a key is pressed.
     screen_arm_off();
 
-    // Static, not a local: this is ~5 kB at APP_MSG_TEXT_MAX, and the same
+    // Static, not a local: this is ~10 kB at APP_MSG_TEXT_MAX, and the same
     // stack has to hold the TLS handshake and chain verification below.
     // Only this task touches it, and there is only one of it.
     static pager_msg_t batch[APP_UPDATES_PER_POLL];
