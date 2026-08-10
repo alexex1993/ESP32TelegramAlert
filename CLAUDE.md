@@ -27,8 +27,8 @@ and verification is on-device via the serial monitor.
 A build requires `.env` (copy from `example.env`). `tools/gen_secrets.py` runs as
 a PlatformIO pre-build script and regenerates `src/secrets.h` from it every time;
 both files are gitignored and must never be committed or hand-edited. The script
-hard-fails on missing keys, a non-numeric `BOT_CHAT_ID`, an unknown
-`UI_LANGUAGE`, a half-filled proxy config, or `PROXY_TYPE=mtproto`.
+hard-fails on missing keys, an unknown `UI_LANGUAGE`, a half-filled proxy
+config, or `PROXY_TYPE=mtproto`.
 
 `.clangd` points at `.pio/build/esp32-c6-lcd-1_47/compile_commands.json`, so run
 a build once before expecting editor completion on ESP-IDF/LVGL headers.
@@ -53,7 +53,7 @@ through a FreeRTOS queue, not shared globals.
 
 Network stack, bottom up: `net_conn.c` (TCP connect, optionally via
 `socks5.c`) → `https_client.c` (raw mbedTLS, not `esp_http_client`) →
-`telegram.c` (cJSON, chat allow-list) → `pager_task.c`.
+`telegram.c` (cJSON) → `pager_task.c`.
 
 ### Non-obvious decisions
 
@@ -68,8 +68,14 @@ load-bearing and shouldn't be "cleaned up".
   so read-until-close is an exact body read and the client needs no chunk parser.
 - **Timeout ordering.** `APP_HTTP_SOCKET_TIMEOUT_MS` must stay above
   `APP_LONGPOLL_TIMEOUT_S`, or a quiet poll looks like a dead connection.
-- **The update offset advances past dropped updates too** (foreign chat, non-message
-  updates). A stalled offset makes Telegram replay the same batch forever.
+- **There is no chat allow-list, on purpose.** Every chat that writes to the bot
+  is paged, and each receipt is addressed to the `chat_id` its own message
+  carried — which is why `pager_msg_t` and the ack queue both carry one instead
+  of using a single configured id. The bot token is the only access control.
+  Messages with no chat id are dropped: they could be shown but never answered.
+- **The update offset advances past dropped updates too** (non-message updates,
+  messages with no chat). A stalled offset makes Telegram replay the same batch
+  forever.
 - **The message queue drops its oldest entry when full** and counts the drops,
   which the header surfaces next to a warning icon — a dropped message can never
   be acknowledged, so it is not silently discarded.
@@ -104,6 +110,31 @@ restarted only when the *head of the queue* changes, keyed on
 the head alone, and restarting on those would jerk the text back mid-read.
 Because of that short-circuit, `ui_init` has to paint the empty-queue state
 itself. Speed and dwell live in `app_config.h` as `UI_BODY_SCROLL_*`.
+
+### Screen sleep
+
+`screen.c` holds the backlight policy: lit if and only if the message queue is
+non-empty, plus a `UI_SCREEN_ON_MS` (20 s) grace window after it empties. Only
+the backlight is switched — the panel, LVGL and the poll loop all keep running,
+so waking shows the current screen with nothing to redraw. `display.c` exposes
+`display_set_backlight()` and knows nothing about when it should be called.
+
+`screen_activity()` is the single entry point ("something happened worth
+looking at"): it lights the screen, then either holds it (queue non-empty) or
+arms the one-shot off timer. `pager_task.c` calls it after a new batch is
+rendered, after a press, and once at task start to begin the countdown that
+boot leaves un-armed. Its mutex is not decoration — without it a message
+arriving in the same instant the timer fires can be paged onto a screen that
+is then switched off behind it.
+
+Because an unread message holds the backlight on, "screen dark" implies "queue
+empty". The `screen_is_on()` guard in `on_button_press` therefore never
+suppresses a real acknowledgement; it only keeps the press that wakes the pager
+from also flashing "nothing to acknowledge".
+
+Nothing needs to pause the body scroll while the screen sleeps: the queue is
+empty in that state, so the body is the short idle string and no animation is
+running.
 
 `src/pager_font_14.c` / `pager_font_20.c` are generated and **committed** —
 normal builds do not regenerate them. LVGL's stock Montserrat fonts are

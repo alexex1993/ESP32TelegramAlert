@@ -14,10 +14,16 @@ which drove an SSD1306 OLED via the FastBot library.
 
 ## Features
 
-- Long-polls the Telegram Bot API and pages every message from one allow-listed chat.
+- Long-polls the Telegram Bot API and pages every message anyone sends the bot —
+  no chat id to configure, receipts go back to whoever wrote.
 - **Message queue** — up to 8 unread messages wait their turn; the header shows how many.
 - **BOOT key sends "✅ Read"** as a reply to the message on screen, then advances to the next one.
 - Replies "📨 Delivered" the moment a message arrives (as the original pager did).
+- **The screen sleeps on its own** — the backlight is lit only while something is
+  unread, plus a 20 s grace window; a BOOT press wakes it without acknowledging
+  anything.
+- **Long messages scroll themselves** — a page taller than the body area crawls
+  down, pauses, rewinds and repeats, so it can be read with no touch screen.
 - **English or Russian interface**, picked in `.env` — see below.
 - **Cyrillic** message text throughout, read **horizontally**: the panel runs rotated to
   320×172 so Russian sentences wrap across the long edge instead of down a narrow column.
@@ -39,9 +45,10 @@ Pins live in `src/app_config.h`. If the image comes out upside down, flip
 ## Setup
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
-2. `cp example.env .env` and fill in the token, your chat id, and WiFi credentials.
-   Messages from any other chat are ignored — send the bot a message and read the
-   rejected chat id out of the serial log if you do not know yours.
+2. `cp example.env .env` and fill in the token and WiFi credentials. There is no
+   chat id: anyone who writes to the bot is paged, so the token is what keeps the
+   pager yours — keep it private, and consider turning the bot's group access off
+   in @BotFather so it cannot be added to strangers' groups.
 3. `pio run -t upload -e esp32-c6-lcd-1_47`
 4. `pio device monitor`
 
@@ -80,5 +87,3 @@ point of having one.
 > `api.telegram.org`, which an MTProto proxy has no way to carry. Supporting one
 > would mean writing a full MTProto client — DH key exchange, AES-IGE, TL
 > serialisation, DC migration — rather than making an HTTPS request. Use SOCKS5.
-
- (needs Node.js) after changing sizes or ranges.

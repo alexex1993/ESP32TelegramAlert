@@ -14,6 +14,7 @@
 #include "https_client.h"
 #include "msg_queue.h"
 #include "net_conn.h"
+#include "screen.h"
 #include "telegram.h"
 #include "ui.h"
 #include "ui_strings.h"
@@ -48,14 +49,27 @@ static void idle_status(void)
 
 static void on_button_press(void)
 {
+    // The key that acknowledges is also the key that wakes, so a press on a
+    // dark screen only lights it. Nothing is queued in that state anyway (an
+    // unread message keeps the backlight on), but the guard keeps the wake
+    // press from flashing "nothing to acknowledge" at someone who has just
+    // picked the pager up.
+    if (!screen_is_on()) {
+        screen_activity();
+        return;
+    }
+
     pager_msg_t msg;
     if (!msg_queue_pop(&msg)) {
         ui_set_status(STR_NOTHING_TO_ACK);
+        screen_activity();
         return;
     }
 
     ESP_LOGI(TAG, "acknowledging message %lld", (long long)msg.message_id);
     ui_render_queue();
+    // Popped the last one? This starts the countdown to sleep.
+    screen_activity();
 
     ack_req_t ack = { .chat_id = msg.chat_id, .message_id = msg.message_id };
     if (xQueueSend(s_ack_queue, &ack, 0) != pdTRUE) {
@@ -98,6 +112,10 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
         msg_queue_push(&batch[i]);
     }
     ui_render_queue();
+    // After the repaint, so the backlight never comes up on the previous page.
+    // The queue is non-empty here, so this holds the screen lit rather than
+    // arming the countdown.
+    screen_activity();
 
 #if APP_SEND_DELIVERY_RECEIPT
     for (int i = 0; i < count; i++) {
@@ -117,6 +135,9 @@ static void pager_task(void *arg)
 {
     ui_render_queue();
     idle_status();
+    // Boot is over and the screen has been on since display_init(); start the
+    // countdown that puts it to sleep if nothing is waiting.
+    screen_activity();
 
     // Static, not a local: this is ~5 kB at APP_MSG_TEXT_MAX, and the same
     // stack has to hold the TLS handshake and chain verification below.
@@ -153,6 +174,7 @@ void pager_start(void)
     s_ack_queue = xQueueCreate(APP_MSG_QUEUE_LEN, sizeof(ack_req_t));
     configASSERT(s_ack_queue);
 
+    screen_init();
     button_start(on_button_press);
     xTaskCreate(pager_task, "pager", PAGER_TASK_STACK, NULL, PAGER_TASK_PRIO, NULL);
 }

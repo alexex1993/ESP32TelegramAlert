@@ -33,6 +33,11 @@ static const char *TAG = "display";
 
 static _lock_t s_lvgl_lock;
 
+void display_set_backlight(bool on)
+{
+    gpio_set_level(BOARD_LCD_PIN_BL, on ? BOARD_LCD_BL_ON_LEVEL : !BOARD_LCD_BL_ON_LEVEL);
+}
+
 void display_lvgl_lock(void)
 {
     _lock_acquire(&s_lvgl_lock);

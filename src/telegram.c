@@ -171,9 +171,12 @@ esp_err_t telegram_poll(int64_t *offset, https_abort_fn abort_fn, void *abort_ct
 
         const cJSON *chat = cJSON_GetObjectItemCaseSensitive(message, "chat");
         int64_t chat_id = chat ? json_int64(chat, "id") : 0;
-        if (chat_id != SECRET_BOT_CHAT_ID) {
-            ESP_LOGW(TAG, "ignoring message from chat %lld (BOT_CHAT_ID is %lld)",
-                     (long long)chat_id, (long long)SECRET_BOT_CHAT_ID);
+        // There is no allow-list: whoever finds the bot gets paged, and the
+        // receipts go back to the chat the message came from. A message with
+        // no chat id is the one exception -- it could be shown but never
+        // answered, since both receipts are addressed by chat id.
+        if (chat_id == 0) {
+            ESP_LOGW(TAG, "update %lld carries no chat id, dropped", (long long)update_id);
             continue;
         }
 

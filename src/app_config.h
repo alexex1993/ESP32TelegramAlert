@@ -80,6 +80,13 @@
 // rather than a speed.
 #define UI_BODY_SCROLL_RETURN_MS    500
 
+// Sleep: the backlight is lit only while a message is waiting to be read.
+// This is the grace window it stays up for after the queue empties -- long
+// enough to see the receipt go out, short enough that a pager left on a desk
+// is dark. A BOOT key press restarts it (and that press is swallowed rather
+// than acknowledging anything).
+#define UI_SCREEN_ON_MS             20000
+
 // ---- Telegram Bot API ---------------------------------------------------
 #define TELEGRAM_API_HOST     "api.telegram.org"
 #define TELEGRAM_API_PORT     443
