@@ -6,6 +6,7 @@
 #include "nvs_flash.h"
 
 #include "display.h"
+#include "led.h"
 #include "msg_queue.h"
 #include "pager_task.h"
 #include "ui.h"
@@ -39,6 +40,9 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     msg_queue_init();
+    // Started before Wi-Fi so a device that restored unread pages from NVS
+    // begins blinking immediately, not after the network comes up.
+    led_init();
 
     lv_display_t *disp = display_init();
     ui_init(disp);

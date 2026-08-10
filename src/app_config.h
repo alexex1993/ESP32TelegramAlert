@@ -48,6 +48,28 @@
 #define BOARD_BUTTON_ACTIVE_LEVEL 0
 #define BOARD_BUTTON_DEBOUNCE_MS 40
 
+// ---- RGB LED (unread indicator) -----------------------------------------
+// The board's on-board WS2812 -- a single addressable pixel behind the acrylic
+// diffuser. Per the Waveshare ESP32-C6-LCD-1.47 wiki, RGB_Control is wired to
+// GPIO8. It is the only arrival cue now that the screen lights on a key press
+// rather than on a message: it blinks while the queue holds anything unread
+// and is dark otherwise (see led.c).
+#define BOARD_LED_GPIO    8
+#define BOARD_LED_COUNT   1
+// Pulse cadence: a short flash then a longer gap, roughly once a second.
+// Visible from across a room without strobing on a desk.
+#define BOARD_LED_BLINK_ON_MS   150
+#define BOARD_LED_BLINK_OFF_MS  850
+// How often the blink task re-checks the queue while idle. Cheap, so short is
+// fine: one mutex take and a compare.
+#define BOARD_LED_IDLE_POLL_MS  250
+// Colour, 0..255 per channel. Kept well under 255: one WS2812 driven wide open
+// is harsh and the diffuser makes it worse, so this is a "something to read"
+// nudge rather than a beacon. Green by default.
+#define BOARD_LED_COLOR_R   0
+#define BOARD_LED_COLOR_G   45
+#define BOARD_LED_COLOR_B   0
+
 // ---- Message queue ------------------------------------------------------
 // Unacknowledged messages waiting to be read. When full the oldest is
 // dropped: on a pager the newest page is the one that matters, and a dropped

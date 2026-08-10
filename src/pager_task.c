@@ -143,10 +143,9 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
         msg_queue_push(&batch[i]);
     }
     ui_render_queue();
-    // After the repaint, so the backlight never comes up on the previous page.
-    // The queue is non-empty here, so this holds the screen lit rather than
-    // arming the countdown.
-    screen_activity();
+    // No screen_activity() here: an arriving message must not light the glass
+    // -- the RGB LED carries the unread signal now. The repaint still runs so
+    // the current head is on screen the moment a key press does wake it.
 
 #if APP_SEND_DELIVERY_RECEIPT
     for (int i = 0; i < count; i++) {
@@ -166,9 +165,10 @@ static void pager_task(void *arg)
 {
     ui_render_queue();
     idle_status();
-    // Boot is over and the screen has been on since display_init(); start the
-    // countdown that puts it to sleep if nothing is waiting.
-    screen_activity();
+    // Boot is over and the screen has been on since display_init(); send it to
+    // sleep on a countdown regardless of any restored pages, and let the LED
+    // carry the unread signal until a key is pressed.
+    screen_arm_off();
 
     // Static, not a local: this is ~5 kB at APP_MSG_TEXT_MAX, and the same
     // stack has to hold the TLS handshake and chain verification below.

@@ -77,8 +77,10 @@ between button and pager and is mutex-guarded.
 - **The display rotates in hardware** (ST7789 MADCTL), not in LVGL. That is
   why `BOARD_LCD_GAP_Y` is 34 and the gap is on Y, not X. Flip
   `BOARD_LCD_MIRROR_X/Y` in `app_config.h` if a unit shows up upside-down.
-- **Backlight policy is in `screen.c`** (lit ⇔ queue non-empty, plus a
-  `UI_SCREEN_ON_MS` grace). `display.c` only switches the GPIO.
+- **Backlight policy is in `screen.c`**: the glass lights only on a BOOT press
+  (held while the queue is non-empty, then a `UI_SCREEN_ON_MS` grace) — arrivals
+  do **not** light it. The RGB LED on GPIO8 (`led.c`) is the unread cue, and
+  `display.c` only switches the GPIO.
 
 ## Load-bearing things that look incidental
 

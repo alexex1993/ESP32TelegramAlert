@@ -141,28 +141,47 @@ itself. Speed and dwell live in `app_config.h` as `UI_BODY_SCROLL_*`.
 
 ### Screen sleep
 
-`screen.c` holds the backlight policy: lit if and only if the message queue is
-non-empty, plus a `UI_SCREEN_ON_MS` (20 s) grace window after it empties. Only
-the backlight is switched — the panel, LVGL and the poll loop all keep running,
-so waking shows the current screen with nothing to redraw. `display.c` exposes
-`display_set_backlight()` and knows nothing about when it should be called.
+`screen.c` holds the backlight policy: the glass lights **only on a BOOT key
+press**, never on a message arriving. An arriving message is signalled by the
+RGB LED (see "RGB LED" below) — the screen comes up when the pager is picked up
+and the key is hit. While open it stays lit as long as the queue still holds
+something to acknowledge, then dims after a `UI_SCREEN_ON_MS` (20 s) grace so
+the last receipt can be read. Only the backlight is switched — the panel, LVGL
+and the poll loop all keep running, so waking shows the current screen with
+nothing to redraw. `display.c` exposes `display_set_backlight()` and knows
+nothing about when it should be called.
 
-`screen_activity()` is the single entry point ("something happened worth
-looking at"): it lights the screen, then either holds it (queue non-empty) or
-arms the one-shot off timer. `pager_task.c` calls it after a new batch is
-rendered, after a press, and once at task start to begin the countdown that
-boot leaves un-armed. Its mutex is not decoration — without it a message
-arriving in the same instant the timer fires can be paged onto a screen that
-is then switched off behind it.
+`screen_activity()` ("a key was pressed") lights the screen and either holds
+it (queue non-empty) or arms the one-shot off timer. `pager_task.c` calls it
+from the button path only — arrivals deliberately do not — and once at task
+start, via `screen_arm_off()`, to begin the boot countdown regardless of any
+restored pages. The off timer's callback dims unconditionally now: with
+arrivals no longer holding the glass lit, nothing should override the
+countdown, and a message that lands during the grace window is the LED's job
+to advertise, not the screen's. Its mutex still serialises that callback
+against a concurrent `screen_activity()`.
 
-Because an unread message holds the backlight on, "screen dark" implies "queue
-empty". The `screen_is_on()` guard in `on_button_press` therefore never
-suppresses a real acknowledgement; it only keeps the press that wakes the pager
-from also flashing "nothing to acknowledge".
+Because the screen can be dark while the queue is non-empty, the
+`screen_is_on()` guard in `on_button_press` regularly suppresses what would
+otherwise be an immediate acknowledgement: the press that wakes a pager with
+waiting pages only lights it, and the next press acknowledges. That is
+intentional — the first press is "I'm looking", not "I'm done".
 
-Nothing needs to pause the body scroll while the screen sleeps: the queue is
-empty in that state, so the body is the short idle string and no animation is
-running.
+The body-scroll need not be paused while the screen sleeps: it loops forever
+by design ("the pager is glanced at, not watched"), so a message that arrived
+in the dark is simply mid-cycle the moment the glass lights, which is exactly
+how one picked up mid-read behaves.
+
+### RGB LED
+
+The on-board WS2812 (`led.c`, GPIO8 per the Waveshare wiki) is the unread cue
+now that the screen no longer lights on arrival. A low-priority task polls
+`msg_queue_count()` and blinks the single pixel while it is above zero, dark
+otherwise — polling rather than a push/pop feed so a missed or future call
+site can never leave it stuck on or stuck off. Cadence and colour live in
+`app_config.h` (`BOARD_LED_BLINK_*_MS`, `BOARD_LED_COLOR_*`); the colour is
+deliberately dim, since one WS2812 driven wide open is harsh behind the
+diffuser.
 
 `src/pager_font_14.c` / `pager_font_20.c` are generated and **committed** —
 normal builds do not regenerate them. LVGL's stock Montserrat fonts are
