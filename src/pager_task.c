@@ -11,6 +11,7 @@
 
 #include "app_config.h"
 #include "button.h"
+#include "commands.h"
 #include "https_client.h"
 #include "msg_queue.h"
 #include "net_conn.h"
@@ -105,6 +106,36 @@ static void drain_acks(void)
     }
 }
 
+typedef struct {
+    int kept;                 // Messages left in the batch, to be paged.
+    command_result_t result;  // COMMAND_NONE when the batch held no commands.
+} filtered_batch_t;
+
+// Answers the commands in a batch and closes the gaps they leave, so nothing
+// downstream ever sees them: a /status must not take a queue slot, wake the
+// screen or draw a "delivered" receipt on top of its own answer.
+static filtered_batch_t filter_commands(pager_msg_t *batch, int count)
+{
+    filtered_batch_t out = { .kept = 0, .result = COMMAND_NONE };
+
+    for (int i = 0; i < count; i++) {
+        command_result_t result = commands_try_handle(&batch[i]);
+        if (result != COMMAND_NONE) {
+            // When a batch holds both, the failure is the one worth reporting.
+            if (out.result != COMMAND_FAILED) {
+                out.result = result;
+            }
+            continue;
+        }
+        if (out.kept != i) {
+            batch[out.kept] = batch[i];
+        }
+        out.kept++;
+    }
+
+    return out;
+}
+
 static void handle_new_messages(const pager_msg_t *batch, int count)
 {
     for (int i = 0; i < count; i++) {
@@ -161,9 +192,24 @@ static void pager_task(void *arg)
             continue;
         }
 
-        if (count > 0) {
-            handle_new_messages(batch, count);
-        } else if (msg_queue_count() == 0) {
+        filtered_batch_t filtered = filter_commands(batch, count);
+        if (filtered.result != COMMAND_NONE) {
+            // No screen_activity() here: a command is asked remotely, and
+            // lighting a pager that is lying in a drawer would answer the
+            // wrong person. The footer is repainted either way -- whoever
+            // picks the device up next sees what it last did. Icons are
+            // limited to the six in tools/gen_fonts.sh; anything else is a box.
+            ui_set_status(filtered.result == COMMAND_ANSWERED
+                              ? STR_CMD_ANSWERED " " LV_SYMBOL_OK
+                              : STR_CMD_FAILED " " LV_SYMBOL_WARNING);
+        }
+
+        if (filtered.kept > 0) {
+            handle_new_messages(batch, filtered.kept);
+        } else if (filtered.result == COMMAND_NONE && msg_queue_count() == 0) {
+            // Skipped after a command: the poll returns the instant one
+            // arrives, so the idle text would wipe the line above before
+            // anyone could read it. The next quiet poll restores it.
             idle_status();
         }
     }

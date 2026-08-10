@@ -27,8 +27,45 @@ which drove an SSD1306 OLED via the FastBot library.
 - **English or Russian interface**, picked in `.env` — see below.
 - **Cyrillic** message text throughout, read **horizontally**: the panel runs rotated to
   320×172 so Russian sentences wrap across the long edge instead of down a narrow column.
+- **`/status` and `/ping` from the chat** — ask the device how it is doing
+  without a serial cable; see below.
 - Optional **SOCKS5 proxy**, with username/password authentication, for the
   Telegram connection.
+
+## Chat commands
+
+Two messages are answered by the firmware instead of being paged: they never
+reach the screen, take a queue slot or wait for a button press.
+
+| Command | Answer |
+| --- | --- |
+| `/ping` | `🏓 pong` — the poll loop is alive and the bot token still works. |
+| `/status` | Firmware revision and build date, uptime, SSID / RSSI / channel, IP, whether a proxy is in use, queue depth (and messages dropped by overflow), backlight state, free heap, the reason for the last reset, and the device clock. |
+
+```
+📟 Pager status
+Firmware: addb85e (ESP-IDF 6.0.1)
+Built: Aug 10 2026 18:20:21
+Uptime: 2d 03:14:07
+WiFi: my-network, -58 dBm, ch 6
+IP: 192.168.1.42
+Proxy: SOCKS5
+Queue: 3/8
+Screen: on
+Heap: 84 KB free, 61 KB min
+Last reset: POWERON
+Clock: 2026-08-10 21:20 UTC+3
+```
+
+Both work as `/status@yourbot` too, which is the form Telegram sends in groups.
+Anything else starting with `/` is an ordinary message and gets paged — someone
+typing `/dev/ttyUSB0` is sending a page, not driving the pager. The answers are
+in whichever `UI_LANGUAGE` the firmware was built with.
+
+There is no allow-list here, for the same reason there is none on messages: the
+bot token is the access control, and whoever can page the device can also ask
+how it is doing. The proxy endpoint is deliberately *not* in the reply — only
+whether one is in use.
 
 ## Hardware
 

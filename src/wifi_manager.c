@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_event.h"
@@ -19,6 +20,11 @@ static const char *TAG = "wifi";
 
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_count = 0;
+// Published by the event handler, read by whoever asks for the link state.
+// A single aligned word rather than a formatted string, so a reader on
+// another task sees either the old address or the new one, never half of a
+// buffer being rewritten under it.
+static volatile uint32_t s_ip4_addr;
 
 static void event_handler(void *arg, esp_event_base_t event_base,
                            int32_t event_id, void *event_data)
@@ -28,6 +34,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         ESP_LOGW(TAG, "disconnected, reason=%d", disc ? disc->reason : -1);
+        s_ip4_addr = 0;
         if (s_retry_count < APP_WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_count++;
@@ -38,6 +45,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        s_ip4_addr = event->ip_info.ip.addr;
         s_retry_count = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
@@ -84,4 +92,27 @@ esp_err_t wifi_manager_connect_blocking(void)
 
     ESP_LOGE(TAG, "WiFi connection failed after %d retries", APP_WIFI_MAX_RETRY);
     return ESP_FAIL;
+}
+
+void wifi_manager_get_info(wifi_manager_info_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    wifi_ap_record_t ap;
+    bool associated = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
+    if (associated) {
+        // ssid is a uint8_t[33] the driver already NUL-terminates.
+        strlcpy(out->ssid, (const char *)ap.ssid, sizeof(out->ssid));
+        out->rssi = ap.rssi;
+        out->channel = ap.primary;
+    }
+
+    esp_ip4_addr_t addr = { .addr = s_ip4_addr };
+    if (addr.addr != 0) {
+        snprintf(out->ip, sizeof(out->ip), IPSTR, IP2STR(&addr));
+    }
+
+    // Associated without a lease is a half-up link, and saying "connected"
+    // there would be a lie -- nothing can be sent over it.
+    out->connected = associated && addr.addr != 0;
 }

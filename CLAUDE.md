@@ -44,8 +44,9 @@ Three FreeRTOS tasks, created in this order from `app_main`:
 - **button** (prio 3, `button.c`) — debounced BOOT key; its callback runs on this
   task, pops the head of the message queue, and posts an ack request.
 - **pager** (prio 4, `pager_task.c`) — the main loop: drain queued receipts →
-  long-poll `getUpdates` → push new messages → repaint. Stack is 10 KB because
-  the TLS handshake and chain verification run here.
+  long-poll `getUpdates` → answer and strip chat commands → push what is left →
+  repaint. Stack is 10 KB because the TLS handshake and chain verification run
+  here.
 
 `msg_queue.c` is the shared state between the button and pager tasks and guards
 itself with a mutex. Anything the two tasks pass across (ack requests) goes
@@ -89,6 +90,33 @@ load-bearing and shouldn't be "cleaned up".
   poll batch may live on a stack; the batch is `static` for that reason, and
   the button task's stack is sized for the two that the press path holds live
   at once.
+
+### Chat commands
+
+`commands.c` answers `/ping` and `/status` in the chat they came from.
+`pager_task` runs `filter_commands()` over every poll batch *before* anything
+else sees it and closes the gaps in place, so a command never reaches
+`msg_queue`, the screen, `screen_activity()` or the delivery receipt — it is a
+question about the device, not a page, and nothing about it should need a
+button press to clear.
+
+Only the names listed in `commands_try_handle()` are treated this way; every
+other message starting with `/` is paged as usual. Adding a command means
+adding a branch there and its strings to *both* blocks of `ui_strings.h` —
+`STR_CMD_*` are sent to Telegram, not drawn, so they may use emoji the pager
+fonts do not carry (spelled as escaped bytes, per the receipt convention).
+The technical tokens in the reply (`SOCKS5`, the `esp_reset_reason()` names)
+are deliberately untranslated: they read like `esp_err_to_name()` output.
+
+Two things that look incidental but are not: the reply buffer is `static` for
+the same reason the poll batch is (the TLS handshake runs on the pager stack
+while it is live), and `pager_task` skips its `idle_status()` call on a lap
+that answered a command — the poll returns the instant one arrives, so the
+idle text would wipe the footer feedback before it could be read.
+
+The status reply reports *whether* a proxy is in use, never which one. There
+is no allow-list on commands, matching the messages: the token is the access
+control.
 
 ### Display and fonts
 
