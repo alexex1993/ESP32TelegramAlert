@@ -6,6 +6,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "msg_store.h"
+
 static const char *TAG = "msgq";
 
 // Plain ring buffer rather than a FreeRTOS queue: the UI needs to peek at the
@@ -21,9 +23,18 @@ void msg_queue_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
     configASSERT(s_lock);
-    s_head = 0;
-    s_count = 0;
-    s_dropped = 0;
+
+    // Restore the queue from NVS before the pager task can push or the
+    // button task can pop. A failed load wipes stale slot blobs so the
+    // ring starts truly empty rather than with last firmware's ghosts.
+    msg_store_init();
+    size_t head = 0, count = 0, dropped = 0;
+    if (!msg_store_load(s_slots, APP_MSG_QUEUE_LEN, &head, &count, &dropped)) {
+        msg_store_clear(APP_MSG_QUEUE_LEN);
+    }
+    s_head = head;
+    s_count = count;
+    s_dropped = dropped;
 }
 
 void msg_queue_push(const pager_msg_t *msg)
@@ -41,6 +52,13 @@ void msg_queue_push(const pager_msg_t *msg)
     size_t tail = (s_head + s_count) % APP_MSG_QUEUE_LEN;
     s_slots[tail] = *msg;
     s_count++;
+
+    // Write the slot before bumping meta: if power dies between the two,
+    // load() still sees the pre-push count and the orphaned slot blob is
+    // simply overwritten by the next push into that index. The opposite
+    // order would let meta advertise a slot whose blob never landed.
+    msg_store_save_slot(tail, msg);
+    msg_store_save_meta(s_head, s_count, s_dropped);
 
     xSemaphoreGive(s_lock);
 }
@@ -66,6 +84,10 @@ bool msg_queue_pop(pager_msg_t *out)
         s_head = (s_head + 1) % APP_MSG_QUEUE_LEN;
         s_count--;
         found = true;
+        // No slot erase: the index now holds stale data, but it sits past
+        // (head+count) so load() will not read it, and the next push into
+        // that index overwrites both RAM and NVS.
+        msg_store_save_meta(s_head, s_count, s_dropped);
     }
     xSemaphoreGive(s_lock);
     return found;

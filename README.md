@@ -16,7 +16,7 @@ which drove an SSD1306 OLED via the FastBot library.
 
 - Long-polls the Telegram Bot API and pages every message anyone sends the bot —
   no chat id to configure, receipts go back to whoever wrote.
-- **Message queue** — up to 8 unread messages wait their turn; the header shows how many.
+- **Message queue** — up to 32 unread messages wait their turn; the header shows how many.
 - **BOOT key sends "✅ Read"** as a reply to the message on screen, then advances to the next one.
 - Replies "📨 Delivered" the moment a message arrives (as the original pager did).
 - **The screen sleeps on its own** — the backlight is lit only while something is

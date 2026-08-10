@@ -53,7 +53,24 @@
 // dropped: on a pager the newest page is the one that matters, and a dropped
 // message can no longer be acknowledged, so the count of drops is surfaced
 // on screen.
-#define APP_MSG_QUEUE_LEN     8
+//
+// The queue is persisted in NVS (see msg_store.c): every push and pop writes
+// through to flash, so a power cut does not lose unread pages. NVS holds one
+// ~1KB blob per slot plus a small meta blob under the "pager" namespace,
+// which is why the nvs partition in partitions.csv is sized for
+// APP_MSG_QUEUE_LEN * sizeof(pager_msg_t) plus headroom (currently 64KB).
+//
+// The slots are a static array, so this costs sizeof(pager_msg_t) = 1096 bytes
+// of DRAM per slot whether or not anything is in it, and that DRAM comes
+// straight off the heap. Measured, linear: 8 slots leave 203 kB of heap, 32
+// leave 177 kB, 64 leave 143 kB, 128 leave 75 kB. The ceiling is not the
+// static budget but the runtime peak -- WiFi, the LVGL draw buffers and above
+// all the TLS handshake against the full certificate bundle, which together
+// are the same order as what 128 slots would leave. That failure would not
+// show up at boot but on the first getUpdates, so do not raise this past 64
+// without checking the "min" figure that /status reports once the device has
+// been up long enough to have shaken hands at least once.
+#define APP_MSG_QUEUE_LEN     32
 // Bytes, not characters -- Cyrillic is two bytes per character in UTF-8, so
 // this holds roughly 500 Russian characters. Longer messages are truncated on
 // a character boundary.
