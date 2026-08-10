@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "esp_lcd_panel_io.h"
@@ -33,9 +34,40 @@ static const char *TAG = "display";
 
 static _lock_t s_lvgl_lock;
 
+// Backlight is dimmed through the LEDC peripheral so the eye sees a smooth
+// ramp rather than a hard on/off. The same pin (BOARD_LCD_PIN_BL) is routed
+// via the GPIO matrix to LEDC channel 0; the duty cycle is scaled from the
+// 0..DISPLAY_BL_MAX API space into the LEDC's 13-bit range.
+#define BL_LEDC_TIMER       LEDC_TIMER_0
+#define BL_LEDC_CHANNEL     LEDC_CHANNEL_0
+#define BL_LEDC_MODE        LEDC_LOW_SPEED_MODE
+#define BL_LEDC_DUTY_RES    LEDC_TIMER_13_BIT  // 0..8191
+#define BL_LEDC_DUTY_MAX    ((1U << 13) - 1)
+#define BL_LEDC_FREQ_HZ     5000
+
+static inline uint32_t bl_level_to_duty(uint16_t level)
+{
+    if (level == 0) {
+        return 0;
+    }
+    if (level >= DISPLAY_BL_MAX) {
+        return BL_LEDC_DUTY_MAX;
+    }
+    return ((uint32_t)BL_LEDC_DUTY_MAX * level) / DISPLAY_BL_MAX;
+}
+
+void display_set_backlight_level(uint16_t level)
+{
+    uint32_t duty = bl_level_to_duty(level);
+    // An instant duty update overrides whatever the panel was doing; screen.c
+    // drives the fade in software, so no LEDC hardware fade is in flight here.
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+}
+
 void display_set_backlight(bool on)
 {
-    gpio_set_level(BOARD_LCD_PIN_BL, on ? BOARD_LCD_BL_ON_LEVEL : !BOARD_LCD_BL_ON_LEVEL);
+    display_set_backlight_level(on ? DISPLAY_BL_MAX : 0);
 }
 
 void display_lvgl_lock(void)
@@ -128,19 +160,39 @@ static void lvgl_port_task(void *arg)
 
 lv_display_t *display_init(void)
 {
-    ESP_LOGI(TAG, "backlight off during init");
-    gpio_config_t bk_gpio_config = {
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = 1ULL << BOARD_LCD_PIN_BL,
+    ESP_LOGI(TAG, "configure backlight LEDC");
+    // The board's BL pin is active high (BOARD_LCD_BL_ON_LEVEL == 1); route it
+    // through LEDC for PWM dimming. Starting at duty 0 keeps the glass dark
+    // through SPI/LVGL bring-up, matching the original GPIO behaviour.
+    ledc_timer_config_t bl_timer_cfg = {
+        .speed_mode      = BL_LEDC_MODE,
+        .duty_resolution = BL_LEDC_DUTY_RES,
+        .timer_num       = BL_LEDC_TIMER,
+        .freq_hz         = BL_LEDC_FREQ_HZ,
+        .clk_cfg         = LEDC_AUTO_CLK,
     };
-    ESP_ERROR_CHECK(gpio_config(&bk_gpio_config));
-    gpio_set_level(BOARD_LCD_PIN_BL, !BOARD_LCD_BL_ON_LEVEL);
+    ESP_ERROR_CHECK(ledc_timer_config(&bl_timer_cfg));
+    ledc_channel_config_t bl_ch_cfg = {
+        .speed_mode = BL_LEDC_MODE,
+        .channel    = BL_LEDC_CHANNEL,
+        .timer_sel  = BL_LEDC_TIMER,
+        .intr_type  = LEDC_INTR_DISABLE,
+        .gpio_num   = BOARD_LCD_PIN_BL,
+        .duty       = 0,
+        .hpoint     = 0,
+        .flags.output_invert = !BOARD_LCD_BL_ON_LEVEL,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&bl_ch_cfg));
 
     ESP_LOGI(TAG, "initialize SPI bus");
     spi_bus_config_t buscfg = {
         .sclk_io_num = BOARD_LCD_PIN_SCLK,
         .mosi_io_num = BOARD_LCD_PIN_MOSI,
-        .miso_io_num = -1,
+        // The TF card shares this bus and reads through its MISO line
+        // (BOARD_SD_PIN_MISO == GPIO5). The write-only LCD never reads, so
+        // declaring the pin here is free for the panel but mandatory for the
+        // SDSPI device that sd_log.c attaches afterwards.
+        .miso_io_num = BOARD_SD_PIN_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
         .max_transfer_sz = BOARD_LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(uint16_t),
@@ -177,7 +229,7 @@ lv_display_t *display_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
 #if BOARD_LCD_SELFTEST
-    gpio_set_level(BOARD_LCD_PIN_BL, BOARD_LCD_BL_ON_LEVEL);
+    display_set_backlight_level(DISPLAY_BL_MAX);
     panel_selftest(panel_handle);
 #endif
 
@@ -210,7 +262,7 @@ lv_display_t *display_init(void)
     xTaskCreate(lvgl_port_task, "lvgl", LVGL_TASK_STACK_SIZE, NULL, LVGL_TASK_PRIORITY, NULL);
 
     ESP_LOGI(TAG, "backlight on");
-    gpio_set_level(BOARD_LCD_PIN_BL, BOARD_LCD_BL_ON_LEVEL);
+    display_set_backlight_level(DISPLAY_BL_MAX);
 
 #if BOARD_LCD_SELFTEST
     // The same idea as panel_selftest, but driven through LVGL: magenta is

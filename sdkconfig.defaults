@@ -31,3 +31,10 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # board_upload.flash_size in platformio.ini.
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# SD card message log (sd_log.c): the FAT filesystem is mounted from the TF
+# slot that shares SPI2 with the LCD. FATFS_LFN_HEAP is the IDF default (on),
+# which the <chat_id>/<date>/<time>.txt path needs. File lock guards against an
+# illegal open/remove on a file the pager is still writing; the value is the
+# number of simultaneously open objects under lock control, 4 is plenty.
+CONFIG_FATFS_FS_LOCK=4

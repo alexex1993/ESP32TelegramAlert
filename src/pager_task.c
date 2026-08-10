@@ -15,6 +15,7 @@
 #include "https_client.h"
 #include "msg_queue.h"
 #include "net_conn.h"
+#include "sd_log.h"
 #include "screen.h"
 #include "telegram.h"
 #include "ui.h"
@@ -140,6 +141,10 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
 {
     for (int i = 0; i < count; i++) {
         ESP_LOGI(TAG, "message %lld from %s", (long long)batch[i].message_id, batch[i].from);
+        // Log to the SD card before pushing: if the push evicts an older page
+        // on a full queue, the new arrival is at least on the card, and a write
+        // hiccup here never blocks the push below it.
+        sd_log_message(&batch[i]);
         msg_queue_push(&batch[i]);
     }
     ui_render_queue();

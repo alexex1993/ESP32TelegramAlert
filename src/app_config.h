@@ -40,6 +40,25 @@
 #define BOARD_LCD_CMD_BITS    8
 #define BOARD_LCD_PARAM_BITS  8
 
+// ---- SD card (TF) -------------------------------------------------------
+// The onboard TF slot shares the LCD's SPI2 bus: MOSI/SCLK are the same pins
+// (GPIO6/7), only CS (GPIO4) and MISO (GPIO5) are SD-specific. The bus is
+// initialised once in display_init(), so MISO must be wired into the bus
+// config there even though the write-only LCD never reads -- the SDSPI device
+// reads through it. See sd_log.c for the mount and per-message file writes.
+#define BOARD_SD_SPI_HOST    SPI2_HOST
+#define BOARD_SD_PIN_CS      4
+#define BOARD_SD_PIN_MISO    5
+#define BOARD_SD_PIN_MOSI    BOARD_LCD_PIN_MOSI
+#define BOARD_SD_PIN_SCLK    BOARD_LCD_PIN_SCLK
+// The card probes at this cap; the driver picks the highest rate the card
+// advertises. 20 MHz is the documented default-speed ceiling and is well clear
+// of the 40 MHz LCD clock on the shared bus.
+#define BOARD_SD_FREQ_KHZ    SDMMC_FREQ_DEFAULT
+#define BOARD_SD_MOUNT_POINT "/sdcard"
+// Root of the message log tree on the card.
+#define SD_LOG_ROOT          BOARD_SD_MOUNT_POINT "/TelegramPager"
+
 // ---- Button -------------------------------------------------------------
 // The board's BOOT key. It is a strapping pin (holding it through reset
 // enters download mode), but reading it at runtime is fine. Active low, with
@@ -120,11 +139,24 @@
 #define UI_BODY_SCROLL_RETURN_MS    500
 
 // Sleep: the backlight is lit only while a message is waiting to be read.
-// This is the grace window it stays up for after the queue empties -- long
-// enough to see the receipt go out, short enough that a pager left on a desk
-// is dark. A BOOT key press restarts it (and that press is swallowed rather
-// than acknowledging anything).
-#define UI_SCREEN_ON_MS             20000
+// After the queue empties the glass dims on a three-phase schedule -- full,
+// then dim, then a smooth fade to off -- long enough to see the receipt go
+// out, short enough that a pager left on a desk goes dark. A BOOT key press
+// at any moment snaps it back to full and restarts the chain (and the wake
+// press that lights a dark screen is swallowed rather than acknowledging
+// anything).
+//
+//   FULL   for UI_SCREEN_FULL_MS  at UI_SCREEN_FULL_LEVEL,
+//   DIM    for UI_SCREEN_DIM_MS   at UI_SCREEN_DIM_LEVEL,
+//   FADING over UI_SCREEN_FADE_MS down to 0.
+//
+// Levels are 0..1000 (per-mille of DISPLAY_BL_MAX) so the fade math divides
+// evenly into UI_SCREEN_FADE_MS without a fractional accumulator.
+#define UI_SCREEN_FULL_MS           20000
+#define UI_SCREEN_FULL_LEVEL        1000
+#define UI_SCREEN_DIM_MS            10000
+#define UI_SCREEN_DIM_LEVEL         500   // 50%
+#define UI_SCREEN_FADE_MS           2000
 
 // ---- Telegram Bot API ---------------------------------------------------
 #define TELEGRAM_API_HOST     "api.telegram.org"

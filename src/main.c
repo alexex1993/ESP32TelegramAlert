@@ -9,6 +9,7 @@
 #include "led.h"
 #include "msg_queue.h"
 #include "pager_task.h"
+#include "sd_log.h"
 #include "ui.h"
 #include "ui_strings.h"
 #include "wifi_manager.h"
@@ -56,6 +57,11 @@ void app_main(void)
 
     ui_set_status(STR_TIME_SYNCING);
     sync_time();
+
+    // Mounts the TF card on the LCD's shared SPI bus; best-effort, the pager
+    // runs without it. After this, sd_log_message() logs each paged message to
+    // its own file under /sdcard/TelegramPager/<chat_id>/<date>/<time>.txt.
+    sd_log_init();
 
     pager_start();
 }

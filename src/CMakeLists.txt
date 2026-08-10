@@ -18,4 +18,7 @@ idf_component_register(
         esp_timer
         log
         led_strip
+        fatfs
+        sdmmc
+        esp_driver_sdspi
 )
