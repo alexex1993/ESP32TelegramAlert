@@ -9,7 +9,9 @@
 #include "led.h"
 #include "msg_queue.h"
 #include "pager_task.h"
+#include "provision.h"
 #include "sd_log.h"
+#include "settings.h"
 #include "ui.h"
 #include "ui_strings.h"
 #include "wifi_manager.h"
@@ -47,12 +49,34 @@ void app_main(void)
 
     lv_display_t *disp = display_init();
     ui_init(disp);
-    ui_set_status(STR_WIFI_CONNECTING);
 
-    if (wifi_manager_connect_blocking() != ESP_OK) {
-        ui_set_status(STR_WIFI_FAILED);
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        esp_restart();
+    // Load whatever settings are stored (may be empty on first boot). The
+    // language is applied right away so even the provisioning screen speaks the
+    // right language if a partial set was saved before.
+    app_settings_t loaded;
+    bool provisioned = settings_load(&loaded);
+    ui_set_language(settings_get()->ui_language);
+
+    wifi_manager_init();
+
+    // Enter the portal on first boot, after a re-provision gesture, or after a
+    // prior STA attempt gave up. provision_start() does not return: it runs the
+    // AP + DNS hijack + HTTP server until a successful save reboots the device.
+    if (!provisioned || settings_force_ap()) {
+        provision_start();
+        return;   // unreachable -- provision_start blocks forever
+    }
+
+    ui_set_status(STR_WIFI_CONNECTING);
+    if (wifi_manager_connect_sta() != ESP_OK) {
+        // Bad credentials (or the network moved). Fall back to the portal
+        // pre-filled with the last attempt rather than boot-loop on a dead
+        // link: set the force-ap flag and reboot into provisioning.
+        ESP_LOGW(TAG, "STA connect failed, falling back to provisioning portal");
+        ui_set_status(STR_STA_FAILED_AP);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        settings_request_ap_and_restart();
+        return;   // unreachable
     }
 
     ui_set_status(STR_TIME_SYNCING);

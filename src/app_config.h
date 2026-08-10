@@ -66,6 +66,10 @@
 #define BOARD_BUTTON_GPIO        9
 #define BOARD_BUTTON_ACTIVE_LEVEL 0
 #define BOARD_BUTTON_DEBOUNCE_MS 40
+// Holding BOOT this long triggers the re-provisioning gesture (long-press
+// callback in button.c). 5 s is long enough that a normal "acknowledge" press
+// never trips it, short enough to be usable.
+#define APP_BUTTON_LONG_HOLD_MS  5000
 
 // ---- RGB LED (unread indicator) -----------------------------------------
 // The board's on-board WS2812 -- a single addressable pixel behind the acrylic
@@ -179,3 +183,18 @@
 #define APP_HTTP_MAX_RESPONSE       (32 * 1024)
 // Backoff after a failed poll, so a broken proxy does not spin the radio.
 #define APP_POLL_ERROR_BACKOFF_MS   5000
+
+// ---- Provisioning (first-boot captive portal) ---------------------------
+// On first boot, or after the long-press re-provision gesture, the device
+// brings up an open SoftAP with this SSID and serves a one-page web form at
+// its own address (the ESP-IDF default 192.168.4.1 -- the captive-portal
+// standard, so phones pop the sign-in sheet automatically). The SSID is open
+// on purpose: the form itself carries the secret (bot token), and a WPA key
+// here would have to be re-entered on the phone and shown on the screen too.
+#define APP_PROVISION_AP_SSID      "TelegramPager"
+#define APP_PROVISION_AP_CHANNEL   6
+
+// Default TZ offset applied when a freshly-provisioned set somehow lacks one
+// (should not happen -- the form always submits a value -- but settings_load
+// clamps a garbage value back to this rather than render garbage times).
+#define APP_DEFAULT_TZ_OFFSET_HOURS 3

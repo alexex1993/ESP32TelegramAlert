@@ -16,6 +16,7 @@ idf_component_register(
         driver
         esp_lcd
         esp_timer
+        esp_http_server
         log
         led_strip
         fatfs

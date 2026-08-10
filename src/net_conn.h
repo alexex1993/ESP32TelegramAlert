@@ -6,8 +6,9 @@
 #include "esp_err.h"
 
 // Opens a TCP connection to host:port, tunnelled through the SOCKS5 proxy
-// configured in .env when there is one. Either way the caller gets back a
-// socket that behaves like a direct connection to the destination.
+// configured at runtime (via the provisioning portal) when one is enabled.
+// Either way the caller gets back a socket that behaves like a direct
+// connection to the destination.
 //
 // The returned socket is blocking, with send/receive timeouts applied.
 esp_err_t net_conn_open(const char *host, uint16_t port, int connect_timeout_ms,

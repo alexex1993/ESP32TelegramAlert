@@ -16,7 +16,7 @@
 #include "msg_queue.h"
 #include "net_conn.h"
 #include "screen.h"
-#include "secrets.h"
+#include "settings.h"
 #include "telegram.h"
 #include "ui_strings.h"
 #include "wifi_manager.h"
@@ -111,7 +111,8 @@ static void format_uptime(char *buf, size_t size)
 }
 
 // The device clock runs on UTC and TZ_OFFSET_HOURS is applied where it is
-// shown, exactly as ui.c does for the [HH:MM] stamp.
+// shown, exactly as ui.c does for the [HH:MM] stamp. The offset is a runtime
+// setting now, read through settings_get().
 static void format_clock(char *buf, size_t size)
 {
     time_t now = time(NULL);
@@ -123,12 +124,13 @@ static void format_clock(char *buf, size_t size)
         return;
     }
 
-    time_t shifted = now + (time_t)SECRET_TZ_OFFSET_HOURS * 3600;
+    int tz = settings_get()->tz_offset_hours;
+    time_t shifted = now + (time_t)tz * 3600;
     struct tm tm;
     gmtime_r(&shifted, &tm);
     snprintf(buf, size, "%04d-%02d-%02d %02d:%02d UTC%+d",
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min,
-             SECRET_TZ_OFFSET_HOURS);
+             tz);
 }
 
 static void build_status(char *buf, size_t size)
@@ -149,8 +151,11 @@ static void build_status(char *buf, size_t size)
     wifi_manager_info_t wifi;
     wifi_manager_get_info(&wifi);
     if (wifi.connected) {
-        append(buf, size, &len, "%s: " STR_CMD_STATUS_WIFI_FMT "\n", STR_CMD_STATUS_WIFI,
-               wifi.ssid, wifi.rssi, wifi.channel);
+        // Split into label + translated format: STR_* are runtime lookups now
+        // and cannot be string-literal-concatenated with adjacent text.
+        append(buf, size, &len, "%s: ", STR_CMD_STATUS_WIFI);
+        append(buf, size, &len, STR_CMD_STATUS_WIFI_FMT, wifi.ssid, wifi.rssi, wifi.channel);
+        append(buf, size, &len, "\n");
         append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_IP, wifi.ip);
     } else {
         // The reply got out somehow, so this is a race with a reconnect rather
@@ -174,9 +179,11 @@ static void build_status(char *buf, size_t size)
 
     append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_SCREEN,
            screen_is_on() ? STR_CMD_STATUS_SCREEN_ON : STR_CMD_STATUS_SCREEN_OFF);
-    append(buf, size, &len, "%s: " STR_CMD_STATUS_HEAP_FMT "\n", STR_CMD_STATUS_HEAP,
+    append(buf, size, &len, "%s: ", STR_CMD_STATUS_HEAP);
+    append(buf, size, &len, STR_CMD_STATUS_HEAP_FMT,
            (unsigned)(esp_get_free_heap_size() / 1024),
            (unsigned)(esp_get_minimum_free_heap_size() / 1024));
+    append(buf, size, &len, "\n");
     append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_RESET, reset_reason_name());
 
     format_clock(scratch, sizeof(scratch));

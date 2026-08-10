@@ -17,6 +17,7 @@
 #include "net_conn.h"
 #include "sd_log.h"
 #include "screen.h"
+#include "settings.h"
 #include "telegram.h"
 #include "ui.h"
 #include "ui_strings.h"
@@ -76,7 +77,7 @@ static void on_button_press(void)
     ack_req_t ack = { .chat_id = msg.chat_id, .message_id = msg.message_id };
     if (xQueueSend(s_ack_queue, &ack, 0) != pdTRUE) {
         ESP_LOGE(TAG, "ack queue full, receipt for %lld dropped", (long long)msg.message_id);
-        ui_set_status(STR_ACK_QUEUE_FULL " " LV_SYMBOL_WARNING);
+        ui_set_statusf("%s %s", STR_ACK_QUEUE_FULL, LV_SYMBOL_WARNING);
         return;
     }
     ui_set_status(STR_ACK_SENDING);
@@ -98,11 +99,11 @@ static void drain_acks(void)
         }
 
         if (err == ESP_OK) {
-            ui_set_status(STR_ACK_SENT " " LV_SYMBOL_OK);
+            ui_set_statusf("%s %s", STR_ACK_SENT, LV_SYMBOL_OK);
         } else {
             // The message is already off the queue, so the receipt is simply
             // lost -- say so rather than pretending it went out.
-            ui_set_status(STR_ACK_FAILED " " LV_SYMBOL_WARNING);
+            ui_set_statusf("%s %s", STR_ACK_FAILED, LV_SYMBOL_WARNING);
         }
     }
 }
@@ -161,9 +162,9 @@ static void handle_new_messages(const pager_msg_t *batch, int count)
     }
 #endif
 
-    char status[64];
-    snprintf(status, sizeof(status), STR_NEW_MESSAGES_FMT "  " LV_SYMBOL_BELL, count);
-    ui_set_status(status);
+    char tmp[40];
+    snprintf(tmp, sizeof(tmp), STR_NEW_MESSAGES_FMT, count);
+    ui_set_statusf("%s  %s", tmp, LV_SYMBOL_BELL);
 }
 
 static void pager_task(void *arg)
@@ -192,7 +193,7 @@ static void pager_task(void *arg)
             continue;
         }
         if (err != ESP_OK) {
-            ui_set_status(STR_TELEGRAM_OFFLINE " " LV_SYMBOL_WARNING);
+            ui_set_statusf("%s %s", STR_TELEGRAM_OFFLINE, LV_SYMBOL_WARNING);
             vTaskDelay(pdMS_TO_TICKS(APP_POLL_ERROR_BACKOFF_MS));
             continue;
         }
@@ -204,9 +205,9 @@ static void pager_task(void *arg)
             // wrong person. The footer is repainted either way -- whoever
             // picks the device up next sees what it last did. Icons are
             // limited to the six in tools/gen_fonts.sh; anything else is a box.
-            ui_set_status(filtered.result == COMMAND_ANSWERED
-                              ? STR_CMD_ANSWERED " " LV_SYMBOL_OK
-                              : STR_CMD_FAILED " " LV_SYMBOL_WARNING);
+            ui_set_statusf("%s %s",
+                           filtered.result == COMMAND_ANSWERED ? STR_CMD_ANSWERED : STR_CMD_FAILED,
+                           filtered.result == COMMAND_ANSWERED ? LV_SYMBOL_OK : LV_SYMBOL_WARNING);
         }
 
         if (filtered.kept > 0) {
@@ -226,6 +227,9 @@ void pager_start(void)
     configASSERT(s_ack_queue);
 
     screen_init();
-    button_start(on_button_press);
+    // on_long: a 5 s BOOT hold sets the force-ap flag and reboots into the
+    // provisioning portal, pre-filled with the current settings -- the recovery
+    // gesture for "moved to a new WiFi" without a serial cable.
+    button_start(on_button_press, settings_request_ap_and_restart);
     xTaskCreate(pager_task, "pager", PAGER_TASK_STACK, NULL, PAGER_TASK_PRIO, NULL);
 }

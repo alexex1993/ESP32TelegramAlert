@@ -10,14 +10,14 @@
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 
-#include "secrets.h"
+#include "settings.h"
 #include "socks5.h"
 
 static const char *TAG = "net";
 
 bool net_conn_uses_proxy(void)
 {
-    return SECRET_PROXY_ENABLED != 0;
+    return settings_get()->proxy_enabled;
 }
 
 static void set_io_timeouts(int fd, int io_timeout_ms)
@@ -102,22 +102,28 @@ static esp_err_t tcp_connect(const char *host, uint16_t port, int timeout_ms, in
 esp_err_t net_conn_open(const char *host, uint16_t port, int connect_timeout_ms,
                          int io_timeout_ms, int *out_fd)
 {
-#if SECRET_PROXY_ENABLED
-    int fd = -1;
-    esp_err_t err = tcp_connect(SECRET_PROXY_HOST, SECRET_PROXY_PORT, connect_timeout_ms, &fd);
-    if (err != ESP_OK) {
-        return err;
-    }
-    set_io_timeouts(fd, io_timeout_ms);
+    const app_settings_t *s = settings_get();
 
-    err = socks5_handshake(fd, SECRET_PROXY_USER, SECRET_PROXY_PASS, host, port);
-    if (err != ESP_OK) {
-        close(fd);
-        return err;
+    if (s->proxy_enabled) {
+        int fd = -1;
+        esp_err_t err = tcp_connect(s->proxy_host, s->proxy_port, connect_timeout_ms, &fd);
+        if (err != ESP_OK) {
+            return err;
+        }
+        set_io_timeouts(fd, io_timeout_ms);
+
+        // Empty user => RFC 1929 no-auth handshake, same convention as before.
+        const char *user = s->proxy_user[0] ? s->proxy_user : NULL;
+        const char *pass = s->proxy_pass[0] ? s->proxy_pass : NULL;
+        err = socks5_handshake(fd, user, pass, host, port);
+        if (err != ESP_OK) {
+            close(fd);
+            return err;
+        }
+        *out_fd = fd;
+        return ESP_OK;
     }
-    *out_fd = fd;
-    return ESP_OK;
-#else
+
     int fd = -1;
     esp_err_t err = tcp_connect(host, port, connect_timeout_ms, &fd);
     if (err != ESP_OK) {
@@ -126,7 +132,6 @@ esp_err_t net_conn_open(const char *host, uint16_t port, int connect_timeout_ms,
     set_io_timeouts(fd, io_timeout_ms);
     *out_fd = fd;
     return ESP_OK;
-#endif
 }
 
 esp_err_t net_conn_set_nonblocking(int fd)

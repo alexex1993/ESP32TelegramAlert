@@ -9,7 +9,7 @@
 #include "esp_log.h"
 
 #include "app_config.h"
-#include "secrets.h"
+#include "settings.h"
 #include "ui_strings.h"
 
 static const char *TAG = "telegram";
@@ -19,7 +19,7 @@ static const char *TAG = "telegram";
 
 static void build_path(char *buf, size_t size, const char *method)
 {
-    snprintf(buf, size, "/bot%s/%s", SECRET_BOT_TOKEN, method);
+    snprintf(buf, size, "/bot%s/%s", settings_get()->bot_token, method);
 }
 
 // Copies a UTF-8 string, truncating on a character boundary rather than in

@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -8,7 +9,7 @@
 #include "display.h"
 #include "fonts.h"
 #include "msg_queue.h"
-#include "secrets.h"
+#include "settings.h"
 #include "ui_strings.h"
 
 #define COLOR_BG      0x000000
@@ -159,10 +160,12 @@ static void body_restart_scroll(void)
 }
 
 // Telegram stamps every message with its own send time, so the [HH:MM] shown
-// is right even when the device clock never got an SNTP answer.
+// is right even when the device clock never got an SNTP answer. The offset is
+// a runtime setting now, read through settings_get().
 static void format_time(int64_t unix_utc, char *buf, size_t size)
 {
-    time_t shifted = (time_t)(unix_utc + (int64_t)SECRET_TZ_OFFSET_HOURS * 3600);
+    int tz = settings_get()->tz_offset_hours;
+    time_t shifted = (time_t)(unix_utc + (int64_t)tz * 3600);
     struct tm tm;
     gmtime_r(&shifted, &tm);
     snprintf(buf, size, "[%02d:%02d]", tm.tm_hour, tm.tm_min);
@@ -218,6 +221,52 @@ void ui_set_status(const char *text)
     display_lvgl_lock();
     if (s_footer_label) {
         lv_label_set_text(s_footer_label, text);
+    }
+    display_lvgl_unlock();
+}
+
+void ui_set_statusf(const char *fmt, ...)
+{
+    char buf[96];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    ui_set_status(buf);
+}
+
+void ui_show_provision(const char *ap_ssid, const char *url)
+{
+    // Build the body as one string so it wraps cleanly under the same flex
+    // layout the pager body uses. Three lines: the two numbered steps and a
+    // blank line for breathing room. The AP name and URL are short enough to
+    // fit a 320px-wide landscape row in the 20px font.
+    char body[160];
+    snprintf(body, sizeof(body), "%s\n%s\n\n%s",
+             STR_PROVISION_AP_LABEL, ap_ssid, url);
+
+    display_lvgl_lock();
+    // Clear the header so the empty-queue envelope icon does not sit next to
+    // the setup instructions.
+    if (s_count_label) {
+        char hdr[48];
+        snprintf(hdr, sizeof(hdr), "%s %s", LV_SYMBOL_WIFI, STR_PROVISION_TITLE);
+        lv_label_set_text(s_count_label, hdr);
+    }
+    if (s_time_label) {
+        lv_label_set_text(s_time_label, "");
+    }
+    if (s_sender_label) {
+        lv_label_set_text(s_sender_label, "");
+    }
+    // Stop any scroll animation left over from a prior message so the URL
+    // stays put, then paint the two-step instruction.
+    lv_anim_delete(s_body_view, body_scroll_exec);
+    lv_obj_scroll_to_y(s_body_view, 0, LV_ANIM_OFF);
+    lv_label_set_text(s_body_label, body);
+    lv_obj_set_style_text_color(s_body_label, lv_color_hex(COLOR_TEXT), 0);
+    if (s_footer_label) {
+        lv_label_set_text(s_footer_label, STR_PROVISION_URL_LABEL);
     }
     display_lvgl_unlock();
 }

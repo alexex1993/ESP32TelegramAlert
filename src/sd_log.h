@@ -16,7 +16,7 @@ bool sd_log_mounted(void);
 
 // Writes one paged message to its own file under
 //   <mount>/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt
-// using the message's own Telegram date shifted by SECRET_TZ_OFFSET_HOURS, so
+// using the message's own Telegram date shifted by the configured TZ offset, so
 // the on-card tree matches the [HH:MM] the screen shows. Best-effort: a write
 // failure is logged but never blocks the pager or loses a page.
 void sd_log_message(const pager_msg_t *msg);

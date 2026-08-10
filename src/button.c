@@ -19,6 +19,7 @@ static const char *TAG = "button";
 #define BUTTON_TASK_PRIO    3
 
 static button_press_cb_t s_on_press;
+static button_long_cb_t  s_on_long;
 
 static inline bool button_is_down(void)
 {
@@ -32,6 +33,9 @@ static void button_task(void *arg)
 {
     bool was_down = false;
     int stable_ms = 0;
+    bool down_since_release = false;
+    int hold_ms = 0;
+    bool long_fired = false;
 
     while (1) {
         bool is_down = button_is_down();
@@ -43,14 +47,33 @@ static void button_task(void *arg)
             if (stable_ms >= BOARD_BUTTON_DEBOUNCE_MS) {
                 was_down = is_down;
                 stable_ms = 0;
-                // Fire on press, not release: the pager should react the
-                // instant the key goes down.
                 if (is_down) {
+                    // Fire on press, not release: the pager should react the
+                    // instant the key goes down.
+                    down_since_release = true;
+                    hold_ms = 0;
+                    long_fired = false;
                     ESP_LOGI(TAG, "press");
                     if (s_on_press) {
                         s_on_press();
                     }
+                } else {
+                    down_since_release = false;
                 }
+            }
+        }
+
+        // Long-press tracking runs independently of the edge debounce: once the
+        // key is down, accumulate held time and trip the long callback once at
+        // the threshold. The short press already fired above, so a long hold is
+        // "short press happened, then continued" -- acceptable for a gesture
+        // that ends in a reboot anyway.
+        if (down_since_release && !long_fired && s_on_long) {
+            hold_ms += BUTTON_POLL_MS;
+            if (hold_ms >= APP_BUTTON_LONG_HOLD_MS) {
+                long_fired = true;
+                ESP_LOGI(TAG, "long press (%d ms), invoking long callback", APP_BUTTON_LONG_HOLD_MS);
+                s_on_long();
             }
         }
 
@@ -58,9 +81,10 @@ static void button_task(void *arg)
     }
 }
 
-void button_start(button_press_cb_t on_press)
+void button_start(button_press_cb_t on_press, button_long_cb_t on_long)
 {
     s_on_press = on_press;
+    s_on_long  = on_long;
 
     gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << BOARD_BUTTON_GPIO,

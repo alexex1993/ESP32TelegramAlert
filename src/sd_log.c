@@ -15,7 +15,7 @@
 #include "sdmmc_cmd.h"
 
 #include "app_config.h"
-#include "secrets.h"
+#include "settings.h"
 
 static const char *TAG = "sdlog";
 
@@ -71,9 +71,10 @@ bool sd_log_init(void)
 
 // Breaks a Unix-seconds timestamp into local calendar fields, applying the same
 // TZ offset the screen does so an on-card date matches what the pager displays.
+// The offset is a runtime setting now, read through settings_get().
 static void breakdown_local(time_t epoch, struct tm *out)
 {
-    time_t shifted = epoch + (time_t)SECRET_TZ_OFFSET_HOURS * 3600;
+    time_t shifted = epoch + (time_t)settings_get()->tz_offset_hours * 3600;
     gmtime_r(&shifted, out);
 }
 
@@ -140,7 +141,7 @@ void sd_log_message(const pager_msg_t *msg)
     fprintf(f, "From: %s\n", msg->from);
     fprintf(f, "Date: %04d-%02d-%02d %02d:%02d:%02d UTC%+d\n",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec, SECRET_TZ_OFFSET_HOURS);
+            tm.tm_hour, tm.tm_min, tm.tm_sec, (int)settings_get()->tz_offset_hours);
     fprintf(f, "Chat: %lld\n", (long long)msg->chat_id);
     fprintf(f, "Message: %lld\n", (long long)msg->message_id);
     fprintf(f, "\n%s\n", msg->text);

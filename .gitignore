@@ -4,9 +4,8 @@
 .vscode/launch.json
 .vscode/ipch
 
-# Secrets: .env is the source of truth, src/secrets.h is generated from it at build time.
+# Just in case a local .env resurfaces - device config is runtime/NVS now, not build-time.
 .env
-src/secrets.h
 
 # ESP-IDF component manager lockfile output / managed deps cache
 dependencies.lock
