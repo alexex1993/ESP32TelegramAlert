@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESP32 Telegram Pager — прошивка из браузера</title>
-<meta name="description" content="Прошивка Waveshare ESP32-C6-LCD-1.47 прямо из браузера, без установки esptool.">
+<title id="page-title">ESP32 Telegram Pager — flash from your browser</title>
+<meta id="page-desc" name="description" content="Flash the Waveshare ESP32-C6-LCD-1.47 straight from your browser, no esptool needed.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📟</text></svg>">
 <style>
   :root {
@@ -46,8 +46,40 @@
   }
   main { max-width: 44rem; margin: 0 auto; }
 
+  .top-bar { display: flex; justify-content: flex-end; margin: 0 0 1rem; }
+  .lang-switch {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .lang-switch button {
+    appearance: none;
+    border: 0;
+    background: var(--card);
+    color: var(--muted);
+    font: inherit;
+    font-size: .82rem;
+    font-weight: 600;
+    padding: .35rem .7rem;
+    cursor: pointer;
+  }
+  .lang-switch button + button { border-left: 1px solid var(--line); }
+  .lang-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+
   h1 { margin: 0 0 .35rem; font-size: 1.75rem; letter-spacing: -.02em; }
-  .sub { margin: 0 0 2rem; color: var(--muted); }
+  .sub { margin: 0 0 1rem; color: var(--muted); }
+
+  .demo-link {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    margin: 0 0 2rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .demo-link:hover { text-decoration: underline; }
+
   h2 { margin: 2.25rem 0 .75rem; font-size: 1.05rem; letter-spacing: .01em; }
 
   .card {
@@ -110,60 +142,122 @@
 </head>
 <body>
 <main>
+  <div class="top-bar">
+    <div class="lang-switch" role="group" aria-label="Language / Язык">
+      <button type="button" id="lang-en" aria-pressed="true">EN</button>
+      <button type="button" id="lang-ru" aria-pressed="false">RU</button>
+    </div>
+  </div>
+
   <h1>ESP32 Telegram Pager</h1>
-  <p class="sub">Прошивка платы Waveshare ESP32-C6-LCD-1.47 прямо из браузера — esptool и Python не нужны.</p>
+  <p class="sub" id="t-sub"></p>
+  <a class="demo-link" href="https://www.youtube.com/shorts/OFUGBKv261c" target="_blank" rel="noopener">▶ DEMO</a>
 
   <div class="card">
     <esp-web-install-button manifest="./manifest.json">
-      <button class="flash" slot="activate">Прошить плату</button>
-      <p class="notice" slot="unsupported">
-        Этот браузер не умеет WebSerial. Откройте страницу в <strong>Chrome, Edge или Opera</strong>
-        на компьютере (или в Chrome на Android). Safari и Firefox WebSerial не поддерживают.
-      </p>
-      <p class="notice" slot="not-allowed">
-        Прошивка возможна только по HTTPS. Откройте страницу по адресу <code>https://</code>.
-      </p>
+      <button class="flash" id="t-flash-btn" slot="activate"></button>
+      <p class="notice" id="t-unsupported" slot="unsupported"></p>
+      <p class="notice" id="t-not-allowed" slot="not-allowed"></p>
     </esp-web-install-button>
-    <p class="meta">Версия <code>%%VERSION%%</code> · собрано %%BUILD_DATE%%</p>
+    <p class="meta" id="t-meta">Version <code>%%VERSION%%</code> · built %%BUILD_DATE%%</p>
   </div>
 
-  <h2>Как прошить</h2>
-  <ol>
-    <li>Подключите плату к компьютеру кабелем <strong>USB-C</strong>. У ESP32-C6 USB-Serial-JTAG
-      встроен в чип, так что ни переходника, ни зажатия <kbd>BOOT</kbd> не требуется.</li>
-    <li>Нажмите <strong>«Прошить плату»</strong> и выберите порт в списке — обычно он называется
-      <code>USB JTAG/serial debug unit</code>, на macOS это <code>/dev/cu.usbmodem…</code>.</li>
-    <li>Дождитесь окончания записи. Плата перезагрузится сама, на экране появится заставка.</li>
-    <li>При первом запуске пейджер поднимет <strong>открытую точку доступа
-      <code>TelegramPager</code></strong>. Подключитесь к ней телефоном — страница настройки
-      откроется сама; если нет, зайдите на <code>http://192.168.4.1</code>. Там задаются токен
-      бота, Wi-Fi, язык, часовой пояс и SOCKS5-прокси.</li>
-  </ol>
+  <h2 id="t-h2-steps"></h2>
+  <ol id="t-steps"></ol>
 
-  <h2>Обновление уже настроенной платы</h2>
-  <p class="notice">
-    В диалоге прошивки не отмечайте <strong>«Erase device»</strong>, если плата уже настроена:
-    стирание вычищает NVS, а вместе с ней токен бота, Wi-Fi и очередь непрочитанных сообщений —
-    устройство вернётся к точке доступа. Обычная запись без стирания трогает только загрузчик,
-    таблицу разделов и приложение, настройки остаются на месте.
-  </p>
+  <h2 id="t-h2-update"></h2>
+  <p class="notice" id="t-update-notice"></p>
 
-  <h2>Если плата не находится</h2>
-  <ul>
-    <li>Проверьте кабель: некоторые USB-C шнуры только заряжают и не имеют линий данных.</li>
-    <li>Закройте всё, что держит порт — монитор PlatformIO, screen, Arduino IDE.</li>
-    <li>Если порт всё равно не появляется, войдите в загрузчик вручную: удерживая <kbd>BOOT</kbd>,
-      нажмите и отпустите <kbd>RESET</kbd>, затем отпустите <kbd>BOOT</kbd>.</li>
-  </ul>
+  <h2 id="t-h2-notfound"></h2>
+  <ul id="t-notfound"></ul>
 
-  <footer>
-    Исходники и документация —
-    <a href="https://github.com/alexex1993/ESP32TelegramAlert">github.com/alexex1993/ESP32TelegramAlert</a>.
-    Прошивка идёт напрямую из браузера в плату по WebSerial: файлы никуда не загружаются,
-    сервер о вашем устройстве ничего не знает.
-  </footer>
+  <footer id="t-footer"></footer>
 </main>
 
+<script>
+  const STRINGS = {
+    en: {
+      title: "ESP32 Telegram Pager — flash from your browser",
+      desc: "Flash the Waveshare ESP32-C6-LCD-1.47 straight from your browser, no esptool needed.",
+      sub: "Flash the Waveshare ESP32-C6-LCD-1.47 board straight from your browser — no esptool, no Python.",
+      flashBtn: "Flash the board",
+      unsupported: 'This browser doesn’t support WebSerial. Open the page in <strong>Chrome, Edge or Opera</strong> on a computer (or Chrome on Android). Safari and Firefox don’t support WebSerial.',
+      notAllowed: 'Flashing only works over HTTPS. Open the page at <code>https://</code>.',
+      meta: 'Version <code>%%VERSION%%</code> · built %%BUILD_DATE%%',
+      h2Steps: "How to flash",
+      steps: [
+        'Connect the board to your computer with a <strong>USB-C</strong> cable. The ESP32-C6 has USB-Serial-JTAG built into the chip, so no adapter and no holding <kbd>BOOT</kbd> is needed.',
+        'Click <strong>“Flash the board”</strong> and pick the port from the list — it’s usually called <code>USB JTAG/serial debug unit</code>, on macOS <code>/dev/cu.usbmodem…</code>.',
+        'Wait for the write to finish. The board reboots on its own and the splash screen appears.',
+        'On first boot the pager brings up an open access point named <strong><code>TelegramPager</code></strong>. Connect to it with your phone — the setup page should open automatically; if not, go to <code>http://192.168.4.1</code>. There you set the bot token, Wi-Fi, language, timezone and SOCKS5 proxy.'
+      ],
+      h2Update: "Updating an already configured board",
+      updateNotice: 'In the flashing dialog, do not check <strong>“Erase device”</strong> if the board is already configured: erasing wipes NVS, taking the bot token, Wi-Fi credentials and the queue of unread messages with it — the device reverts to the access point. A normal write without erasing only touches the bootloader, the partition table and the app; settings stay in place.',
+      h2NotFound: "If the board isn’t detected",
+      notFound: [
+        'Check the cable: some USB-C cables only charge and have no data lines.',
+        'Close anything holding the port — PlatformIO monitor, screen, Arduino IDE.',
+        'If the port still doesn’t show up, enter the bootloader manually: hold <kbd>BOOT</kbd>, press and release <kbd>RESET</kbd>, then release <kbd>BOOT</kbd>.'
+      ],
+      footer: 'Source and docs — <a href="https://github.com/alexex1993/ESP32TelegramAlert">github.com/alexex1993/ESP32TelegramAlert</a>. Flashing goes straight from the browser to the board over WebSerial: no files are uploaded anywhere, the server knows nothing about your device.'
+    },
+    ru: {
+      title: "ESP32 Telegram Pager — прошивка из браузера",
+      desc: "Прошивка Waveshare ESP32-C6-LCD-1.47 прямо из браузера, без установки esptool.",
+      sub: "Прошивка платы Waveshare ESP32-C6-LCD-1.47 прямо из браузера — esptool и Python не нужны.",
+      flashBtn: "Прошить плату",
+      unsupported: 'Этот браузер не умеет WebSerial. Откройте страницу в <strong>Chrome, Edge или Opera</strong> на компьютере (или в Chrome на Android). Safari и Firefox WebSerial не поддерживают.',
+      notAllowed: 'Прошивка возможна только по HTTPS. Откройте страницу по адресу <code>https://</code>.',
+      meta: 'Версия <code>%%VERSION%%</code> · собрано %%BUILD_DATE%%',
+      h2Steps: "Как прошить",
+      steps: [
+        'Подключите плату к компьютеру кабелем <strong>USB-C</strong>. У ESP32-C6 USB-Serial-JTAG встроен в чип, так что ни переходника, ни зажатия <kbd>BOOT</kbd> не требуется.',
+        'Нажмите <strong>«Прошить плату»</strong> и выберите порт в списке — обычно он называется <code>USB JTAG/serial debug unit</code>, на macOS это <code>/dev/cu.usbmodem…</code>.',
+        'Дождитесь окончания записи. Плата перезагрузится сама, на экране появится заставка.',
+        'При первом запуске пейджер поднимет <strong>открытую точку доступа <code>TelegramPager</code></strong>. Подключитесь к ней телефоном — страница настройки откроется сама; если нет, зайдите на <code>http://192.168.4.1</code>. Там задаются токен бота, Wi-Fi, язык, часовой пояс и SOCKS5-прокси.'
+      ],
+      h2Update: "Обновление уже настроенной платы",
+      updateNotice: 'В диалоге прошивки не отмечайте <strong>«Erase device»</strong>, если плата уже настроена: стирание вычищает NVS, а вместе с ней токен бота, Wi-Fi и очередь непрочитанных сообщений — устройство вернётся к точке доступа. Обычная запись без стирания трогает только загрузчик, таблицу разделов и приложение, настройки остаются на месте.',
+      h2NotFound: "Если плата не находится",
+      notFound: [
+        'Проверьте кабель: некоторые USB-C шнуры только заряжают и не имеют линий данных.',
+        'Закройте всё, что держит порт — монитор PlatformIO, screen, Arduino IDE.',
+        'Если порт всё равно не появляется, войдите в загрузчик вручную: удерживая <kbd>BOOT</kbd>, нажмите и отпустите <kbd>RESET</kbd>, затем отпустите <kbd>BOOT</kbd>.'
+      ],
+      footer: 'Исходники и документация — <a href="https://github.com/alexex1993/ESP32TelegramAlert">github.com/alexex1993/ESP32TelegramAlert</a>. Прошивка идёт напрямую из браузера в плату по WebSerial: файлы никуда не загружаются, сервер о вашем устройстве ничего не знает.'
+    }
+  };
+
+  const METRIC_PLACEHOLDER = document.getElementById('t-meta').innerHTML;
+
+  function setLang(lang) {
+    const s = STRINGS[lang];
+    document.documentElement.lang = lang;
+    document.getElementById('page-title').textContent = s.title;
+    document.getElementById('page-desc').setAttribute('content', s.desc);
+    document.getElementById('t-sub').textContent = s.sub;
+    document.getElementById('t-flash-btn').textContent = s.flashBtn;
+    document.getElementById('t-unsupported').innerHTML = s.unsupported;
+    document.getElementById('t-not-allowed').innerHTML = s.notAllowed;
+    document.getElementById('t-meta').innerHTML = s.meta;
+    document.getElementById('t-h2-steps').textContent = s.h2Steps;
+    document.getElementById('t-steps').innerHTML = s.steps.map(li => `<li>${li}</li>`).join('');
+    document.getElementById('t-h2-update').textContent = s.h2Update;
+    document.getElementById('t-update-notice').innerHTML = s.updateNotice;
+    document.getElementById('t-h2-notfound').textContent = s.h2NotFound;
+    document.getElementById('t-notfound').innerHTML = s.notFound.map(li => `<li>${li}</li>`).join('');
+    document.getElementById('t-footer').innerHTML = s.footer;
+    document.getElementById('lang-en').setAttribute('aria-pressed', String(lang === 'en'));
+    document.getElementById('lang-ru').setAttribute('aria-pressed', String(lang === 'ru'));
+    localStorage.setItem('esp32pager_lang', lang);
+  }
+
+  document.getElementById('lang-en').addEventListener('click', () => setLang('en'));
+  document.getElementById('lang-ru').addEventListener('click', () => setLang('ru'));
+
+  const saved = localStorage.getItem('esp32pager_lang');
+  setLang(saved === 'ru' ? 'ru' : 'en');
+</script>
 <script type="module" src="./esp-web-tools/install-button.js"></script>
 </body>
 </html>

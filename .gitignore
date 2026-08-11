@@ -19,3 +19,7 @@ web/node_modules/
 web/package-lock.json
 
 .claude/
+
+# wrangler's local state, created by `wrangler pages deploy`.
+.wrangler/
+
