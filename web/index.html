@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Telegram Pager — прошивка из браузера</title>
+<meta name="description" content="Прошивка Waveshare ESP32-C6-LCD-1.47 прямо из браузера, без установки esptool.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📟</text></svg>">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --fg: #16181d;
+    --muted: #5c626e;
+    --line: #e2e5ea;
+    --accent: #2c7be5;
+    --accent-fg: #ffffff;
+    --warn-bg: #fff6e5;
+    --warn-line: #f0d090;
+    --warn-fg: #6b4a00;
+    --code-bg: #eceef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card: #1c1f25;
+      --fg: #e8eaee;
+      --muted: #9aa1ae;
+      --line: #2c313a;
+      --accent: #4d94ee;
+      --accent-fg: #0d1014;
+      --warn-bg: #2b2413;
+      --warn-line: #5a4a1e;
+      --warn-fg: #e8cf95;
+      --code-bg: #262a31;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+
+  h1 { margin: 0 0 .35rem; font-size: 1.75rem; letter-spacing: -.02em; }
+  .sub { margin: 0 0 2rem; color: var(--muted); }
+  h2 { margin: 2.25rem 0 .75rem; font-size: 1.05rem; letter-spacing: .01em; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.75rem;
+    text-align: center;
+  }
+
+  button.flash {
+    appearance: none;
+    border: 0;
+    border-radius: 9px;
+    padding: .85rem 2rem;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.flash:hover { filter: brightness(1.08); }
+
+  .meta { margin: 1rem 0 0; font-size: .85rem; color: var(--muted); }
+  .meta code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; font-size: .95em; }
+
+  .notice {
+    margin: 0;
+    padding: .9rem 1rem;
+    border: 1px solid var(--warn-line);
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+    border-radius: 9px;
+    font-size: .92rem;
+    text-align: left;
+  }
+
+  ol, ul { padding-left: 1.3rem; }
+  li { margin: .5rem 0; }
+  li strong { font-weight: 600; }
+
+  code, kbd {
+    background: var(--code-bg);
+    padding: .12rem .38rem;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .9em;
+  }
+
+  a { color: var(--accent); }
+
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+    font-size: .875rem;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>ESP32 Telegram Pager</h1>
+  <p class="sub">Прошивка платы Waveshare ESP32-C6-LCD-1.47 прямо из браузера — esptool и Python не нужны.</p>
+
+  <div class="card">
+    <esp-web-install-button manifest="./manifest.json">
+      <button class="flash" slot="activate">Прошить плату</button>
+      <p class="notice" slot="unsupported">
+        Этот браузер не умеет WebSerial. Откройте страницу в <strong>Chrome, Edge или Opera</strong>
+        на компьютере (или в Chrome на Android). Safari и Firefox WebSerial не поддерживают.
+      </p>
+      <p class="notice" slot="not-allowed">
+        Прошивка возможна только по HTTPS. Откройте страницу по адресу <code>https://</code>.
+      </p>
+    </esp-web-install-button>
+    <p class="meta">Версия <code>%%VERSION%%</code> · собрано %%BUILD_DATE%%</p>
+  </div>
+
+  <h2>Как прошить</h2>
+  <ol>
+    <li>Подключите плату к компьютеру кабелем <strong>USB-C</strong>. У ESP32-C6 USB-Serial-JTAG
+      встроен в чип, так что ни переходника, ни зажатия <kbd>BOOT</kbd> не требуется.</li>
+    <li>Нажмите <strong>«Прошить плату»</strong> и выберите порт в списке — обычно он называется
+      <code>USB JTAG/serial debug unit</code>, на macOS это <code>/dev/cu.usbmodem…</code>.</li>
+    <li>Дождитесь окончания записи. Плата перезагрузится сама, на экране появится заставка.</li>
+    <li>При первом запуске пейджер поднимет <strong>открытую точку доступа
+      <code>TelegramPager</code></strong>. Подключитесь к ней телефоном — страница настройки
+      откроется сама; если нет, зайдите на <code>http://192.168.4.1</code>. Там задаются токен
+      бота, Wi-Fi, язык, часовой пояс и SOCKS5-прокси.</li>
+  </ol>
+
+  <h2>Обновление уже настроенной платы</h2>
+  <p class="notice">
+    В диалоге прошивки не отмечайте <strong>«Erase device»</strong>, если плата уже настроена:
+    стирание вычищает NVS, а вместе с ней токен бота, Wi-Fi и очередь непрочитанных сообщений —
+    устройство вернётся к точке доступа. Обычная запись без стирания трогает только загрузчик,
+    таблицу разделов и приложение, настройки остаются на месте.
+  </p>
+
+  <h2>Если плата не находится</h2>
+  <ul>
+    <li>Проверьте кабель: некоторые USB-C шнуры только заряжают и не имеют линий данных.</li>
+    <li>Закройте всё, что держит порт — монитор PlatformIO, screen, Arduino IDE.</li>
+    <li>Если порт всё равно не появляется, войдите в загрузчик вручную: удерживая <kbd>BOOT</kbd>,
+      нажмите и отпустите <kbd>RESET</kbd>, затем отпустите <kbd>BOOT</kbd>.</li>
+  </ul>
+
+  <footer>
+    Исходники и документация —
+    <a href="https://github.com/alexex1993/ESP32TelegramAlert">github.com/alexex1993/ESP32TelegramAlert</a>.
+    Прошивка идёт напрямую из браузера в плату по WebSerial: файлы никуда не загружаются,
+    сервер о вашем устройстве ничего не знает.
+  </footer>
+</main>
+
+<script type="module" src="./esp-web-tools/install-button.js"></script>
+</body>
+</html>

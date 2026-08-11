@@ -1,0 +1,80 @@
+# Builds the firmware on every `v*` tag and publishes the browser flasher
+# (tools/build_flasher.sh -> dist/) to Cloudflare Pages.
+#
+# One-time setup:
+#   1. Cloudflare dashboard -> Workers & Pages -> Create -> Pages -> "Direct
+#      Upload", name the project (must match CF_PAGES_PROJECT below). Set its
+#      production branch to `main`.
+#   2. Repository -> Settings -> Secrets and variables -> Actions:
+#        CLOUDFLARE_API_TOKEN   API token with the "Cloudflare Pages: Edit" permission
+#        CLOUDFLARE_ACCOUNT_ID  from the dashboard URL / account home
+#
+# `workflow_dispatch` runs the same build without touching the live site, so the
+# assembled dist/ can be downloaded from the run and checked before tagging.
+
+name: Flasher
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to Cloudflare Pages (otherwise just build and upload the artifact)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CF_PAGES_PROJECT: esp32-telegram-pager
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The ESP-IDF toolchain download is the slow part of a cold run; the
+      # extracted packages are rebuilt from it cheaply.
+      - name: Cache PlatformIO downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            web/node_modules
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'sdkconfig.defaults') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware and assemble the flasher site
+        env:
+          # Tag pushes ship the tag; manual runs are labelled as what they are.
+          FLASHER_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+        run: bash tools/build_flasher.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flasher-site
+          path: dist/
+          if-no-files-found: error
+
+      - name: Deploy to Cloudflare Pages
+        if: github.ref_type == 'tag' || inputs.deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ env.CF_PAGES_PROJECT }} --branch=main --commit-dirty=true

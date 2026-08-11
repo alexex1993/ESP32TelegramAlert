@@ -19,6 +19,7 @@ pio run -t upload -e esp32-c6-lcd-1_47    # build + flash
 pio device monitor                        # 115200, exception decoder on
 pio run -t clean                          # or -t fullclean to drop managed_components/
 bash tools/gen_fonts.sh                   # regenerate src/pager_font_*.c (needs Node)
+bash tools/build_flasher.sh               # build + assemble the browser flasher into dist/
 ```
 
 There is no host test suite — `test/` holds only PlatformIO's placeholder README,
@@ -343,6 +344,28 @@ with one another:
   `board_upload.flash_size`.
 - `src/CMakeLists.txt` — globs `src/*.c`, so a new file needs no edit; the
   `REQUIRES` list does, though (`esp_http_server` was added for the portal).
+
+### Browser flasher
+
+`web/index.html` + `tools/build_flasher.sh` build a static WebSerial flasher
+(esp-web-tools) into `dist/`; `.github/workflows/flasher.yml` runs the same
+script on a `v*` tag and pushes `dist/` to Cloudflare Pages. Both `dist/` and
+`web/node_modules/` are build output and gitignored — esp-web-tools is vendored
+at build time rather than pulled from a CDN at runtime, so the published page is
+a closed set of files.
+
+Two things there are load-bearing, both about flash layout:
+
+- **The offsets are read back from the build, never hardcoded.** Bootloader and
+  partition-table offsets come from `sdkconfig.esp32-c6-lcd-1_47`, the app offset
+  from decoding `partitions.bin` with the IDF's `gen_esp32part.py`. The oversized
+  `nvs` in `partitions.csv` puts factory at **`0x40000`**, not the stock
+  `0x10000` — a hardcoded offset here would survive review and brick every board
+  that visited the page.
+- **The manifest lists three parts, not one merged image.** `esptool merge_bin`
+  would fill the gap between the table and the app with `0xff`, which erases the
+  `cfg` and `pager` NVS namespaces on every update. Separate parts leave NVS
+  alone unless the user ticks *Erase device*.
 
 ## UI strings
 

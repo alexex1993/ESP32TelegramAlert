@@ -12,3 +12,10 @@ dependencies.lock
 managed_components/
 
 __pycache__/
+
+# Browser flasher: both are build output of tools/build_flasher.sh.
+dist/
+web/node_modules/
+web/package-lock.json
+
+.claude/

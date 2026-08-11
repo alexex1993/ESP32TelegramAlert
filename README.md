@@ -101,6 +101,8 @@ image flashes to every device** and each is configured over WiFi.
    ```
    pio run -t upload -e esp32-c6-lcd-1_47
    ```
+   Or flash from a browser, with no toolchain at all — see
+   [Flashing from the browser](#flashing-from-the-browser).
 3. On first boot the pager opens an open WiFi network named **`TelegramPager`**.
    The screen shows its address — `http://192.168.4.1` — and the two steps to
    follow. Join that WiFi from a phone and the captive-portal sheet pops up
@@ -130,6 +132,44 @@ before you could reach the page anyway.
 There is no chat id to configure: anyone who writes to the bot is paged, so the
 token is what keeps the pager yours — keep it private, and consider turning the
 bot's group access off in @BotFather so it cannot be added to strangers' groups.
+
+### Flashing from the browser
+
+`web/index.html` plus `tools/build_flasher.sh` produce a static page that flashes
+a board over WebSerial — [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
+driving the ESP32-C6's built-in USB-Serial-JTAG. Nothing is uploaded anywhere:
+the `.bin` files are served as static assets and written to the board by the
+browser, so the site is a plain folder of files and needs no backend.
+
+```
+bash tools/build_flasher.sh          # -> dist/
+python3 -m http.server -d dist 8000  # WebSerial treats http://localhost as secure
+```
+
+`dist/` is what gets published. The build reads all three flash offsets back out
+of the artifacts it just produced — the bootloader and table offsets from
+`sdkconfig`, the app offset by decoding `partitions.bin` — rather than hardcoding
+them, because this project's oversized `nvs` puts the app at `0x40000` instead of
+the stock `0x10000`, and a stale offset in a published manifest would brick every
+board that visits the page.
+
+The manifest lists the three images as **separate parts rather than one merged
+image**: merging would pad the gap between the partition table and the app with
+`0xff` and so wipe NVS on every update, taking the bot token, the WiFi
+credentials and the unread queue with it. Updating an already-configured pager
+therefore means leaving *Erase device* unchecked in the flash dialog.
+
+`.github/workflows/flasher.yml` runs the same script on every `v*` tag and
+deploys `dist/` to Cloudflare Pages (free tier is plenty — it is static hosting;
+no Workers involved). It needs two repository secrets, `CLOUDFLARE_API_TOKEN`
+(with *Cloudflare Pages: Edit*) and `CLOUDFLARE_ACCOUNT_ID`, and a Pages project
+whose name matches `CF_PAGES_PROJECT` in the workflow. A manual
+`workflow_dispatch` run builds and uploads `dist/` as an artifact without
+touching the live site.
+
+Browser support is the one real limitation: WebSerial exists in Chrome, Edge and
+Opera (desktop, plus Chrome on Android) and not in Firefox or Safari. The page
+says so itself when it detects an unsupported browser.
 
 ### Re-provisioning
 
