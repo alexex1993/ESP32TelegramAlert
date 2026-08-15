@@ -191,8 +191,8 @@ the pager must react the instant the key goes down.
 
 ### Chat commands
 
-`commands.c` answers `/ping` and `/status` in the chat they came from, and
-turns `/pager <text>` into a page.
+`commands.c` answers `/ping`, `/status` and `/last N` in the chat they came
+from, and turns `/pager <text>` into a page.
 `pager_task` runs `filter_commands()` over every poll batch *before* anything
 else sees it and closes the gaps in place, so a command never reaches
 `msg_queue`, the screen, `screen_activity()` or the delivery receipt — it is a
@@ -214,6 +214,28 @@ in the room. The rewrite is done *before* the `chat_id == 0` guard, since it
 needs no chat to answer in — a page sent inline may carry the prefix too. A
 bare `/pager` falls through to an answer explaining the form, rather than
 paging an empty page someone then has to clear.
+
+**`/last N` reads the queue back out into the chat** — the N newest unread
+pages, oldest of the selection first so the listing runs down the way the chat
+around it does. It reads and nothing more: no pop, no receipt, the pages stay
+unacknowledged, because only the BOOT key means "I have seen this" and a
+listing must not clear a page off the glass of a pager sitting in someone
+else's pocket. `msg_queue_peek_recent()` exists for it and indexes from the
+*newest* end on purpose — pops take from the oldest, so an index there keeps
+naming the same page, and a BOOT press mid-listing can only drop the oldest few
+of the range rather than shift an entry into it twice.
+
+Everything about the reply's size is a consequence of `sendMessage` refusing
+more than 4096 characters while a single page may be `APP_MSG_TEXT_MAX` bytes
+on its own: each page is clipped to `APP_LAST_TEXT_MAX` on a UTF-8 boundary
+(with `…`, the same cut `copy_utf8()` makes, done as a length so it can go
+through `append()`), at most `APP_LAST_MAX_PAGES` of them go in, and
+`COMMANDS_LAST_MAX` is *derived* from those two and `_Static_assert`ed against
+the 4096 — raising a knob cannot silently start truncating the last page in the
+reply. A bare `/last` uses `APP_LAST_DEFAULT_PAGES`; a number above the cap is
+clamped rather than refused, since the title reports how many of how many came
+back, but anything that is not a plain positive number gets the usage text
+instead of a guess.
 
 `command_arg()` is what makes that possible: it returns the text after
 `/name` (and after Telegram's `/name@thisbot` form) with the separating
@@ -461,7 +483,7 @@ with one another:
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  inline-mode buffer sizes, the long-hold threshold, the provisioning AP
+  `/last` limits, the inline-mode buffer sizes, the long-hold threshold, the provisioning AP
   name/channel and the fallback TZ. Compile-time knobs only: nothing a user
   configures per device lives here — and note that inline mode itself is not a
   knob at all, it is switched on for the bot in BotFather.

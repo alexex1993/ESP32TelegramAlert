@@ -183,6 +183,26 @@
 #define APP_SEND_DELIVERY_RECEIPT 1
 #define APP_ACK_MAX_ATTEMPTS      3
 
+// ---- Chat commands ------------------------------------------------------
+// "/last N" reads the N newest unread pages back out into the chat that asked.
+// Three numbers bound the reply, and the first two exist because of a hard
+// Telegram limit rather than taste: sendMessage refuses anything over 4096
+// characters, and a page here may be APP_MSG_TEXT_MAX bytes on its own. Each
+// page is therefore cut (on a character boundary, with an ellipsis) at
+// APP_LAST_TEXT_MAX and no more than APP_LAST_MAX_PAGES of them go into one
+// reply -- COMMANDS_LAST_MAX in commands.h is derived from the two and
+// static-asserted against that limit.
+//
+// Raising either costs DRAM twice over: the reply buffer grows with the
+// product, and it is static for the same reason the poll batch is (the TLS
+// handshake that sends it runs on the pager task's stack).
+#define APP_LAST_MAX_PAGES       8
+#define APP_LAST_DEFAULT_PAGES   3   // A bare "/last", with no number after it.
+// Bytes, not characters, like APP_MSG_TEXT_MAX -- so roughly 160 Cyrillic
+// characters of each page. A listing is a reminder of what is waiting, not a
+// way to read it: the full text is on the glass.
+#define APP_LAST_TEXT_MAX        320
+
 // ---- Inline mode --------------------------------------------------------
 // "@thisbot ..." typed in any chat, without the bot being a member of it:
 // an empty query offers the device's status, a non-empty one offers to page

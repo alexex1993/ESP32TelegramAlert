@@ -38,6 +38,17 @@ void msg_queue_push(const pager_msg_t *msg);
 // Copies the oldest message without removing it. False if the queue is empty.
 bool msg_queue_peek(pager_msg_t *out);
 
+// Copies the `back`-th newest message without removing it: 0 is the message
+// that arrived last, 1 the one before it. False once `back` reaches the depth
+// of the queue. Counted from the new end rather than the old one because that
+// is the end nothing else moves -- pops take from the front, so an index here
+// keeps pointing at the same page for as long as that page is queued.
+//
+// This is how /last reads the queue out into a chat (see commands.c). It
+// copies rather than lending a pointer so nothing outside the mutex ever
+// touches a slot.
+bool msg_queue_peek_recent(size_t back, pager_msg_t *out);
+
 // Removes and copies the oldest message. False if the queue is empty.
 bool msg_queue_pop(pager_msg_t *out);
 

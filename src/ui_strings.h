@@ -61,6 +61,9 @@
     X(CMD_STATUS_CLOCK,   "Clock",                            "Часы") \
     X(CMD_STATUS_CLOCK_UNSYNCED,"not synced",                 "не синхронизированы") \
     X(CMD_PAGER_USAGE,    "Send /pager followed by the text to show on the pager.", "Отправьте /pager и текст, который нужно показать на пейджере.") \
+    X(CMD_LAST_TITLE_FMT, "\xF0\x9F\x93\x9C Last %d of %d unread", "\xF0\x9F\x93\x9C \xD0\x9F\xD0\xBE\xD1\x81\xD0\xBB\xD0\xB5\xD0\xB4\xD0\xBD\xD0\xB8\xD0\xB5 %d \xD0\xB8\xD0\xB7 %d \xD0\xBD\xD0\xB5\xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85") /* "📜 Last %d of %d unread" / "📜 Последние %d из %d непрочитанных" */ \
+    X(CMD_LAST_EMPTY,     "\xF0\x9F\x93\xAD Nothing is waiting on the pager.", "\xF0\x9F\x93\xAD \xD0\x9D\xD0\xB0 \xD0\xBF\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80\xD0\xB5 \xD0\xBD\xD0\xB5\xD1\x82 \xD0\xBD\xD0\xB5\xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9.") /* "📭 Nothing is waiting on the pager." / "📭 На пейджере нет непрочитанных сообщений." */ \
+    X(CMD_LAST_USAGE_FMT, "Send /last N to see the N newest unread pages (1-%d). The pages stay on the pager -- only the BOOT key clears them.", "Отправьте /last N, чтобы посмотреть N последних непрочитанных страниц (1-%d). Страницы остаются на пейджере — снять их можно только кнопкой BOOT.") \
     X(CMD_ANSWERED,       "Command answered",                 "Команда выполнена") \
     X(CMD_FAILED,         "Command reply not delivered",      "Ответ на команду не доставлен") \
     /* Reactions. Both columns are the same emoji on purpose: a reaction is a
@@ -147,6 +150,9 @@ void ui_set_language(int lang_id);
 #define STR_CMD_STATUS_CLOCK        ui_str(STR_ID_CMD_STATUS_CLOCK)
 #define STR_CMD_STATUS_CLOCK_UNSYNCED ui_str(STR_ID_CMD_STATUS_CLOCK_UNSYNCED)
 #define STR_CMD_PAGER_USAGE         ui_str(STR_ID_CMD_PAGER_USAGE)
+#define STR_CMD_LAST_TITLE_FMT      ui_str(STR_ID_CMD_LAST_TITLE_FMT)
+#define STR_CMD_LAST_EMPTY          ui_str(STR_ID_CMD_LAST_EMPTY)
+#define STR_CMD_LAST_USAGE_FMT      ui_str(STR_ID_CMD_LAST_USAGE_FMT)
 #define STR_CMD_ANSWERED            ui_str(STR_ID_CMD_ANSWERED)
 #define STR_CMD_FAILED              ui_str(STR_ID_CMD_FAILED)
 #define STR_REACTION_DELIVERED      ui_str(STR_ID_REACTION_DELIVERED)
