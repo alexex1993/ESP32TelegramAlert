@@ -14,6 +14,7 @@
 #include "esp_timer.h"
 
 #include "app_config.h"
+#include "contacts.h"
 #include "msg_queue.h"
 #include "net_conn.h"
 #include "screen.h"
@@ -191,6 +192,11 @@ void commands_build_status(char *buf, size_t size)
         append(buf, size, &len, ", %s %u", STR_CMD_STATUS_DROPPED, (unsigned)dropped);
     }
     append(buf, size, &len, "\n");
+
+    // How many chats will get the next boot announcement -- the only way to
+    // see the list without a serial cable.
+    append(buf, size, &len, "%s: %u/%u\n", STR_CMD_STATUS_CONTACTS,
+           (unsigned)contacts_count(), (unsigned)APP_CONTACTS_MAX);
 
     append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_SCREEN,
            screen_is_on() ? STR_CMD_STATUS_SCREEN_ON : STR_CMD_STATUS_SCREEN_OFF);

@@ -39,7 +39,8 @@ a build once before expecting editor completion on ESP-IDF/LVGL headers.
 ### Boot path
 
 `app_main` (`main.c`) runs, in order: NVS → `msg_queue_init()` (restores the
-persisted queue) → `led_init()` → `display_init()` + `ui_init()` →
+persisted queue) → `contacts_init()` (restores who has written) → `led_init()`
+→ `display_init()` + `ui_init()` →
 `settings_load()` + `ui_set_language()` → `wifi_manager_init()` → **either**
 `provision_start()` **or** `wifi_manager_connect_sta()` → SNTP → `sd_log_init()`
 → `pager_start()`.
@@ -68,10 +69,11 @@ Three FreeRTOS tasks, created in this order from `app_main`:
   task, pops the head of the message queue, and posts an ack request. It also
   tracks hold time and fires a second, long-press callback at
   `APP_BUTTON_LONG_HOLD_MS` (see "Re-provisioning gesture").
-- **pager** (prio 4, `pager_task.c`) — the main loop: drain queued receipts →
-  long-poll `getUpdates` → answer inline queries and button taps → answer and
-  strip chat commands → push what is left → repaint. Stack is 10 KB because the
-  TLS handshake and chain verification run here.
+- **pager** (prio 4, `pager_task.c`) — announces the boot to the contact list,
+  then the main loop: drain queued receipts → long-poll `getUpdates` → remember
+  who wrote → answer inline queries and button taps → answer and strip chat
+  commands → push what is left → repaint. Stack is 10 KB because the TLS
+  handshake and chain verification run here.
 
 `msg_queue.c` is the shared state between the button and pager tasks and guards
 itself with a mutex. Anything the two tasks pass across (ack requests) goes
@@ -197,7 +199,10 @@ from, and turns `/pager <text>` into a page.
 else sees it and closes the gaps in place, so a command never reaches
 `msg_queue`, the screen, `screen_activity()` or the delivery receipt — it is a
 question about the device, not a page, and nothing about it should need a
-button press to clear.
+button press to clear. The contact list is the single exception, and
+deliberately so: `contacts_note()` runs over the raw batch just above, because
+someone who only ever asks `/status` is still someone who talks to this pager
+(see "Contacts and the boot announcement").
 
 **`/pager <text>` is the exception to all of that**, and the reason
 `commands_try_handle()` takes a non-const `pager_msg_t`. It is a command in
@@ -338,6 +343,52 @@ It is `strdup`'d rather than a fixed field, because a field would put
 few that are inline. `drain_acks()` owns the `free`, including on the
 queue-full path.
 
+### Contacts and the boot announcement
+
+`contacts.c` remembers every chat that has written to the pager and, once the
+link is up, tells each of them in turn that the device is back
+(`STR_BOOT_ANNOUNCE`, "📟 Пейджер включён"). A pager that lost power otherwise
+leaves the people paging it unable to tell "nobody has written" from "it has
+been off since Tuesday". It is the same shape as `commands.c` and
+`inline_mode.c` — a policy module the pager task calls, with `telegram.c`
+owning the wire format — and it is the only thing in the firmware that speaks
+without being spoken to, which is why `telegram_send_message()` exists next to
+`telegram_reply()`.
+
+- **The list is keyed on the chat, not the person**, exactly as the receipts
+  are: a chat id is what the firmware can address, so a group that pages the
+  device is one entry and gets the announcement in the group. `name` is stored
+  for the log and nothing else.
+- **A page that arrived inline is not a contact.** Inline mode never tells the
+  bot which chat the message landed in, so there is nowhere to announce into;
+  `contacts_note()` ignores a zero chat id, the same guard the receipts use.
+- **Senders are recorded before `filter_commands()`**, over the raw poll batch,
+  so a chat that only ever sends `/status` is on the list too — asking the
+  device how it is doing is as much "I am talking to this pager" as a page is.
+  This is the one place where a command is not invisible to the rest of the
+  firmware.
+- **The whole list is one NVS blob**, not a key per entry: at
+  `APP_CONTACTS_MAX` it is about a kilobyte, and one write means the stored
+  list can never be half of two different ones.
+- **`last_seen` is always the value that is on flash.** It orders the eviction
+  and nothing else, so it is refreshed at most once per `APP_CONTACTS_TOUCH_S`
+  rather than on every message — the field and the blob cannot disagree,
+  because the field only moves when a write is about to happen. A full list
+  drops its least recently seen entry: a pager remembers who is still paging
+  it.
+- **A failed announcement does not forget the contact.** Far more often it is a
+  link that is not fully up than a chat that has blocked the bot, and
+  forgetting someone costs them every future announcement while retrying costs
+  one handshake per boot.
+- The announcement runs *before* the first poll, which is what makes it mean "I
+  have just come up", and costs one TLS handshake per contact — a few seconds
+  at the default 16. Set `APP_ANNOUNCE_ON_BOOT` to 0 to keep the list but stay
+  quiet. `/status` reports the count, since there is no other way to see the
+  list without a serial cable.
+- **`contacts_init()` failing is not fatal**, unlike `msg_store_init()`: losing
+  the list costs an announcement, not a page someone is waiting to read, so the
+  module logs and runs unpersisted for that session.
+
 ### Display and fonts
 
 The 172×320 glass is driven rotated to 320×172 by the ST7789 itself (MADCTL
@@ -456,7 +507,7 @@ where they were, so nothing in `ui.c` had to move.
 
 ### Storage
 
-Three independent things live in flash/on card, and they must not be confused
+Four independent things live in flash/on card, and they must not be confused
 with one another:
 
 - **`msg_store.c` — the unread queue, in NVS namespace `pager`.** Every push
@@ -469,6 +520,9 @@ with one another:
 - **`settings.c` — device settings, in NVS namespace `cfg`.** Separate
   namespace on purpose: a queue-format change must not take the WiFi
   credentials with it, and vice versa.
+- **`contacts.c` — who has written to the pager, in NVS namespace `contacts`.**
+  Its own namespace for the same reason, and the whole list is one blob rather
+  than a key per entry (see "Contacts and the boot announcement").
 - **`sd_log.c` — one file per paged message on the TF card**, at
   `/sdcard/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt` — or under
   `inline/` for a page that has no chat, since a directory named `0` would read
@@ -483,7 +537,8 @@ with one another:
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  `/last` limits, the inline-mode buffer sizes, the long-hold threshold, the provisioning AP
+  `/last` limits, the inline-mode buffer sizes, the contact-list size and boot
+  announcement switch, the long-hold threshold, the provisioning AP
   name/channel and the fallback TZ. Compile-time knobs only: nothing a user
   configures per device lives here — and note that inline mode itself is not a
   knob at all, it is switched on for the bot in BotFather.

@@ -233,6 +233,27 @@
 // current, and the page card differs on every keystroke anyway.
 #define APP_INLINE_CACHE_TIME_S  0
 
+// ---- Contacts and the boot announcement ---------------------------------
+// Every chat that writes to the pager is remembered in NVS (namespace
+// "contacts", see contacts.c), and each one is told once, in turn, that the
+// device is back up -- so a pager that lost power does not leave the people
+// paging it wondering whether it is still listening.
+//
+// The whole list is a single NVS blob of this many entries, and it is static
+// DRAM as well, at sizeof(contact_t) (64 bytes) each -- so this is cheap, but
+// it is also the number of TLS handshakes a boot can cost before the first
+// poll: at roughly a second each, 16 is a few seconds of announcing. A full
+// list replaces its least recently seen entry.
+#define APP_CONTACTS_MAX          16
+// How stale a contact's last-seen stamp is allowed to get before writing a
+// fresher one. The stamp only orders the eviction above, so refreshing it on
+// every single message would spend a flash write to sharpen a number nothing
+// reads that precisely.
+#define APP_CONTACTS_TOUCH_S      3600
+// Announce at all. Turning this off keeps the list (it is what /status counts
+// and what a future feature would reuse) but leaves the chats quiet on boot.
+#define APP_ANNOUNCE_ON_BOOT      1
+
 // ---- Networking ---------------------------------------------------------
 #define APP_WIFI_MAX_RETRY       10
 // Per-socket-read timeout. Must exceed APP_LONGPOLL_TIMEOUT_S so a quiet long

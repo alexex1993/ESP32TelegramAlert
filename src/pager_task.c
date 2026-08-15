@@ -14,6 +14,7 @@
 #include "app_config.h"
 #include "button.h"
 #include "commands.h"
+#include "contacts.h"
 #include "https_client.h"
 #include "inline_mode.h"
 #include "msg_queue.h"
@@ -323,6 +324,21 @@ static void pager_task(void *arg)
     // carry the unread signal until a key is pressed.
     screen_arm_off();
 
+#if APP_ANNOUNCE_ON_BOOT
+    // Tell everyone who has ever paged this device that it is back. Before the
+    // first poll rather than after one, because that is what makes the message
+    // mean "I have just come up" -- and it costs a handshake per contact, so
+    // the poll it delays would have been delayed by the same seconds anyway.
+    // Failures are logged inside contacts_announce() and cost nothing else.
+    if (contacts_count() > 0) {
+        ui_set_status(STR_BOOT_ANNOUNCING);
+        size_t sent = contacts_announce(STR_BOOT_ANNOUNCE);
+        ESP_LOGI(TAG, "boot announcement reached %u of %u contact(s)",
+                 (unsigned)sent, (unsigned)contacts_count());
+        idle_status();
+    }
+#endif
+
     // Static, not locals: the messages alone are ~10 kB at APP_MSG_TEXT_MAX,
     // and the same stack has to hold the TLS handshake and chain verification
     // below. Only this task touches them, and there is only one of it.
@@ -348,6 +364,15 @@ static void pager_task(void *arg)
             ui_set_statusf("%s %s", STR_TELEGRAM_OFFLINE, LV_SYMBOL_WARNING);
             vTaskDelay(pdMS_TO_TICKS(APP_POLL_ERROR_BACKOFF_MS));
             continue;
+        }
+
+        // Remembered before anything filters the batch, so a chat that only
+        // ever sends commands is on the list too: /status is as much "I am
+        // talking to this pager" as a page is, and its sender wants the boot
+        // announcement just the same. An inline page carries no chat id and is
+        // ignored by contacts_note().
+        for (int i = 0; i < batch.msgs_count; i++) {
+            contacts_note(batch.msgs[i].chat_id, batch.msgs[i].from, batch.msgs[i].date);
         }
 
         // Inline first: an inline query has a few seconds before Telegram

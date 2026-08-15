@@ -321,7 +321,10 @@ static esp_err_t post_payload(const char *method, cJSON *payload)
     return ESP_OK;
 }
 
-esp_err_t telegram_reply(int64_t chat_id, int64_t reply_to_message_id, const char *text)
+// One sendMessage, threaded under `reply_to_message_id` when that is non-zero
+// and standalone when it is not -- the two differ by two fields, and nothing
+// else about the call.
+static esp_err_t send_text(int64_t chat_id, int64_t reply_to_message_id, const char *text)
 {
     // Built with cJSON rather than snprintf so the text is escaped properly --
     // it is arbitrary user input and will contain quotes and newlines.
@@ -331,12 +334,24 @@ esp_err_t telegram_reply(int64_t chat_id, int64_t reply_to_message_id, const cha
     }
     cJSON_AddNumberToObject(payload, "chat_id", (double)chat_id);
     cJSON_AddStringToObject(payload, "text", text);
-    cJSON_AddNumberToObject(payload, "reply_to_message_id", (double)reply_to_message_id);
-    // Without this, replying to a deleted message is a hard error and the
-    // receipt is lost entirely.
-    cJSON_AddBoolToObject(payload, "allow_sending_without_reply", true);
+    if (reply_to_message_id != 0) {
+        cJSON_AddNumberToObject(payload, "reply_to_message_id", (double)reply_to_message_id);
+        // Without this, replying to a deleted message is a hard error and the
+        // receipt is lost entirely.
+        cJSON_AddBoolToObject(payload, "allow_sending_without_reply", true);
+    }
 
     return post_payload("sendMessage", payload);
+}
+
+esp_err_t telegram_reply(int64_t chat_id, int64_t reply_to_message_id, const char *text)
+{
+    return send_text(chat_id, reply_to_message_id, text);
+}
+
+esp_err_t telegram_send_message(int64_t chat_id, const char *text)
+{
+    return send_text(chat_id, 0, text);
 }
 
 esp_err_t telegram_set_reaction(int64_t chat_id, int64_t message_id, const char *emoji)

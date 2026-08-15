@@ -52,6 +52,7 @@
     X(CMD_STATUS_PROXY_NONE,"direct",                         "напрямую") \
     X(CMD_STATUS_QUEUE,   "Queue",                            "Очередь") \
     X(CMD_STATUS_DROPPED, "dropped",                          "потеряно") \
+    X(CMD_STATUS_CONTACTS,"Contacts",                         "Контакты") \
     X(CMD_STATUS_SCREEN,  "Screen",                           "Экран") \
     X(CMD_STATUS_SCREEN_ON,"on",                              "горит") \
     X(CMD_STATUS_SCREEN_OFF,"off",                            "погашен") \
@@ -73,6 +74,11 @@
        offers is the OK hand below. */ \
     X(REACTION_DELIVERED, "\xF0\x9F\x91\x8C", "\xF0\x9F\x91\x8C") /* "👌" */ \
     X(REACTION_READ,      "\xF0\x9F\x91\x80", "\xF0\x9F\x91\x80") /* "👀" */ \
+    /* Boot announcement. The first is sent to Telegram, so its emoji is
+       spelled as escaped bytes like the other outgoing strings; the second is
+       the footer on the glass while it goes out. */ \
+    X(BOOT_ANNOUNCE,      "\xF0\x9F\x93\x9F Pager is online", "\xF0\x9F\x93\x9F \xD0\x9F\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80 \xD0\xB2\xD0\xBA\xD0\xBB\xD1\x8E\xD1\x87\xD1\x91\xD0\xBD") /* "📟 Pager is online" / "📟 Пейджер включён" */ \
+    X(BOOT_ANNOUNCING,    "Notifying contacts...",            "Оповещение контактов...") \
     /* Inline mode ("@thisbot ..." typed in any chat) */ \
     X(INLINE_PAGE_TITLE,  "\xF0\x9F\x93\x9F Send to pager", "\xF0\x9F\x93\x9F \xD0\x9E\xD1\x82\xD0\xBF\xD1\x80\xD0\xB0\xD0\xB2\xD0\xB8\xD1\x82\xD1\x8C \xD0\xBD\xD0\xB0 \xD0\xBF\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80") /* "📟 Send to pager" / "📟 Отправить на пейджер" */ \
     X(INLINE_STATUS_DESC_FMT,"online · queue %u/%u",         "онлайн · очередь %u/%u") \
@@ -141,6 +147,7 @@ void ui_set_language(int lang_id);
 #define STR_CMD_STATUS_PROXY_NONE   ui_str(STR_ID_CMD_STATUS_PROXY_NONE)
 #define STR_CMD_STATUS_QUEUE        ui_str(STR_ID_CMD_STATUS_QUEUE)
 #define STR_CMD_STATUS_DROPPED      ui_str(STR_ID_CMD_STATUS_DROPPED)
+#define STR_CMD_STATUS_CONTACTS     ui_str(STR_ID_CMD_STATUS_CONTACTS)
 #define STR_CMD_STATUS_SCREEN       ui_str(STR_ID_CMD_STATUS_SCREEN)
 #define STR_CMD_STATUS_SCREEN_ON    ui_str(STR_ID_CMD_STATUS_SCREEN_ON)
 #define STR_CMD_STATUS_SCREEN_OFF   ui_str(STR_ID_CMD_STATUS_SCREEN_OFF)
@@ -157,6 +164,8 @@ void ui_set_language(int lang_id);
 #define STR_CMD_FAILED              ui_str(STR_ID_CMD_FAILED)
 #define STR_REACTION_DELIVERED      ui_str(STR_ID_REACTION_DELIVERED)
 #define STR_REACTION_READ           ui_str(STR_ID_REACTION_READ)
+#define STR_BOOT_ANNOUNCE           ui_str(STR_ID_BOOT_ANNOUNCE)
+#define STR_BOOT_ANNOUNCING         ui_str(STR_ID_BOOT_ANNOUNCING)
 #define STR_INLINE_PAGE_TITLE       ui_str(STR_ID_INLINE_PAGE_TITLE)
 #define STR_INLINE_STATUS_DESC_FMT  ui_str(STR_ID_INLINE_STATUS_DESC_FMT)
 #define STR_INLINE_PING_TITLE       ui_str(STR_ID_INLINE_PING_TITLE)

@@ -70,6 +70,11 @@ esp_err_t telegram_poll(int64_t *offset, https_abort_fn abort_fn, void *abort_ct
 // original message is gone the text is still delivered, just unthreaded.
 esp_err_t telegram_reply(int64_t chat_id, int64_t reply_to_message_id, const char *text);
 
+// Sends `text` into `chat_id` on its own, threaded under nothing. This is for
+// what the device says without being asked -- the boot announcement to the
+// contact list; everything else here answers a message and replies to it.
+esp_err_t telegram_send_message(int64_t chat_id, const char *text);
+
 // Sets the bot's single reaction on a message, replacing whatever it set
 // before -- which is how "read" supersedes "delivered". Channels forbid bot
 // reactions and any chat can turn them off, so a failure here is an ordinary
