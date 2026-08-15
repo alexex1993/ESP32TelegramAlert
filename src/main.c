@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "contacts.h"
 #include "display.h"
 #include "led.h"
 #include "msg_queue.h"
@@ -43,6 +44,10 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     msg_queue_init();
+    // Restores the list of chats that have written to this pager, so the
+    // announcement the pager task sends once the link is up reaches everyone
+    // who was paging it before the power cut.
+    contacts_init();
     // Started before Wi-Fi so a device that restored unread pages from NVS
     // begins blinking immediately, not after the network comes up.
     led_init();

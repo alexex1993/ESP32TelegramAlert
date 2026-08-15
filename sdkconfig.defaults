@@ -3,14 +3,115 @@
 # that go nowhere.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
+# -Os, not the IDF default -Og. The factory partition is 3000K and the two
+# generated fonts alone eat ~530K of it, so the code has to be built for size
+# rather than for stepping through in a debugger -- which nothing here does,
+# since verification is over the serial monitor.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# assert() aborts without printing __FILE__ and the expression, which drops
+# every one of those strings from rodata. ESP_ERROR_CHECK -- what this
+# firmware actually checks with -- still prints its error name and backtrace,
+# and monitor_filters has the exception decoder on, so a panic stays readable.
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
 # LVGL: the UI draws with the generated Cyrillic fonts in src/pager_font_*.c,
 # but LVGL still needs one built-in font compiled in to use as its default.
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
 
+# A codepoint the font does not carry draws as nothing, not as LVGL's hollow
+# rectangle. This is what makes the emoji ranges in tools/gen_fonts.sh work:
+# the skin-tone modifiers are deliberately left out of the font, and with the
+# placeholder on, every 👍🏽 would come through as a thumb plus an empty box.
+# The cost is that a script the pager genuinely cannot draw (CJK, say) is
+# silent rather than a row of boxes -- neither is readable, so the quieter one
+# wins. Flip this back to y and re-check the emoji before trusting the boxes.
+CONFIG_LV_USE_FONT_PLACEHOLDER=n
+
 # 16-bit RGB565 framebuffer, byte-swapped manually in the flush callback
 # (do not also enable CONFIG_LV_COLOR_16_SWAP -- that would double-swap).
 CONFIG_LV_COLOR_DEPTH_16=y
+
+# LVGL allocates from the system heap instead of its own 64 kB static pool.
+# The pool is .bss whether LVGL fills it or not, and this UI -- four labels,
+# two containers and one scroll animation -- uses a fraction of it; on the
+# heap the rest is available to the TLS handshake, which is what actually
+# runs the device close to empty. LV_MEM_SIZE_KILOBYTES is dead once this is
+# on. lv_malloc failures still trip LV_USE_ASSERT_MALLOC, so an exhausted
+# heap is not silent.
+CONFIG_LV_USE_CLIB_MALLOC=y
+
+# Only the widgets ui.c and provision.c actually create. This is not dead
+# code the linker would have dropped by itself: lv_theme_default's
+# theme_apply() tests the class of every widget it knows, so leaving a
+# LV_USE_* on links that whole widget in even though nothing creates one.
+# The UI is labels and plain objects in a flex column, and nothing else.
+#
+# Adding a widget to ui.c means turning its option back on here.
+CONFIG_LV_USE_LABEL=y
+CONFIG_LV_USE_FLEX=y
+CONFIG_LV_USE_THEME_DEFAULT=y
+CONFIG_LV_USE_ANIMIMG=n
+CONFIG_LV_USE_ARC=n
+CONFIG_LV_USE_ARCLABEL=n
+CONFIG_LV_USE_BAR=n
+CONFIG_LV_USE_BUTTON=n
+CONFIG_LV_USE_BUTTONMATRIX=n
+CONFIG_LV_USE_CALENDAR=n
+CONFIG_LV_USE_CANVAS=n
+CONFIG_LV_USE_CHART=n
+CONFIG_LV_USE_CHECKBOX=n
+CONFIG_LV_USE_DROPDOWN=n
+CONFIG_LV_USE_IMAGE=n
+CONFIG_LV_USE_IMAGEBUTTON=n
+CONFIG_LV_USE_KEYBOARD=n
+CONFIG_LV_USE_LED=n
+CONFIG_LV_USE_LINE=n
+CONFIG_LV_USE_LIST=n
+CONFIG_LV_USE_MENU=n
+CONFIG_LV_USE_MSGBOX=n
+CONFIG_LV_USE_ROLLER=n
+CONFIG_LV_USE_SCALE=n
+CONFIG_LV_USE_SLIDER=n
+CONFIG_LV_USE_SPAN=n
+CONFIG_LV_USE_SPINBOX=n
+CONFIG_LV_USE_SPINNER=n
+CONFIG_LV_USE_SWITCH=n
+CONFIG_LV_USE_TABLE=n
+CONFIG_LV_USE_TABVIEW=n
+CONFIG_LV_USE_TEXTAREA=n
+CONFIG_LV_USE_TILEVIEW=n
+CONFIG_LV_USE_WIN=n
+CONFIG_LV_USE_GRID=n
+CONFIG_LV_USE_OBSERVER=n
+CONFIG_LV_USE_THEME_SIMPLE=n
+
+# The examples and demos are compiled by default and reference most of the
+# widget set, which is the other half of why the list above was not being
+# garbage-collected.
+CONFIG_LV_BUILD_EXAMPLES=n
+CONFIG_LV_BUILD_DEMOS=n
+
+# Software blending is only ever asked to write into the display buffer,
+# which lv_display_set_color_format() sets to plain RGB565, plus ARGB8888
+# for the intermediate layer LVGL allocates when it needs one. Every other
+# destination format is a code path nothing on this device can reach.
+#
+# RGB565_SWAPPED is off despite the panel wanting big-endian: display.c
+# swaps the finished buffer itself with lv_draw_sw_rgb565_swap(), which
+# lives in lv_draw_sw_utils.c and is compiled regardless of this option.
+CONFIG_LV_DRAW_SW_SUPPORT_RGB565=y
+CONFIG_LV_DRAW_SW_SUPPORT_ARGB8888=y
+CONFIG_LV_DRAW_SW_SUPPORT_RGB565_SWAPPED=n
+CONFIG_LV_DRAW_SW_SUPPORT_RGB565A8=n
+CONFIG_LV_DRAW_SW_SUPPORT_RGB888=n
+CONFIG_LV_DRAW_SW_SUPPORT_XRGB8888=n
+CONFIG_LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED=n
+CONFIG_LV_DRAW_SW_SUPPORT_L8=n
+CONFIG_LV_DRAW_SW_SUPPORT_AL88=n
+CONFIG_LV_DRAW_SW_SUPPORT_A8=n
+CONFIG_LV_DRAW_SW_SUPPORT_I1=n
 
 # Verify api.telegram.org against the bundled root store rather than a pinned
 # certificate, so an issuer rotation does not brick the pager.
@@ -22,6 +123,31 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # and api.telegram.org does send large records.
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+
+# Client only. The firmware dials out to api.telegram.org and nothing dials
+# in over TLS -- the provisioning portal is plain HTTP on an open AP, by
+# design (see provision.c) -- so the server half of the handshake state
+# machine is linked in for nothing.
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+
+# Curves. secp256r1 and x25519 are what a TLS 1.2 ECDHE handshake with
+# api.telegram.org negotiates, secp384r1 is kept as the one plausible
+# upgrade; each of the rest carries its own field arithmetic. Brainpool in
+# particular is not offered by any CDN in front of Telegram.
+CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED=y
+CONFIG_MBEDTLS_ECP_DP_SECP384R1_ENABLED=y
+CONFIG_MBEDTLS_ECP_DP_CURVE25519_ENABLED=y
+CONFIG_MBEDTLS_ECP_DP_SECP521R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_SECP256K1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP256R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP384R1_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_BP512R1_ENABLED=n
+
+# No IPv6. Every address the pager touches is v4: the Telegram API over the
+# router's DHCP lease or through a SOCKS5 proxy (socks5.c can parse a v6
+# reply but never asks for one), SNTP, and the 192.168.4.1 the portal serves
+# itself on. Turning it off drops lwIP's whole nd6/ip6/mld6 half.
+CONFIG_LWIP_IPV6=n
 
 # The pager task runs the TLS handshake, so app_main only needs enough room
 # to bring up the display and WiFi -- but the default is still tight.

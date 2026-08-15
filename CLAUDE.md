@@ -39,7 +39,8 @@ a build once before expecting editor completion on ESP-IDF/LVGL headers.
 ### Boot path
 
 `app_main` (`main.c`) runs, in order: NVS → `msg_queue_init()` (restores the
-persisted queue) → `led_init()` → `display_init()` + `ui_init()` →
+persisted queue) → `contacts_init()` (restores who has written) → `led_init()`
+→ `display_init()` + `ui_init()` →
 `settings_load()` + `ui_set_language()` → `wifi_manager_init()` → **either**
 `provision_start()` **or** `wifi_manager_connect_sta()` → SNTP → `sd_log_init()`
 → `pager_start()`.
@@ -68,10 +69,11 @@ Three FreeRTOS tasks, created in this order from `app_main`:
   task, pops the head of the message queue, and posts an ack request. It also
   tracks hold time and fires a second, long-press callback at
   `APP_BUTTON_LONG_HOLD_MS` (see "Re-provisioning gesture").
-- **pager** (prio 4, `pager_task.c`) — the main loop: drain queued receipts →
-  long-poll `getUpdates` → answer and strip chat commands → push what is left →
-  repaint. Stack is 10 KB because the TLS handshake and chain verification run
-  here.
+- **pager** (prio 4, `pager_task.c`) — announces the boot to the contact list,
+  then the main loop: drain queued receipts → long-poll `getUpdates` → remember
+  who wrote → answer inline queries and button taps → answer and strip chat
+  commands → push what is left → repaint. Stack is 10 KB because the TLS
+  handshake and chain verification run here.
 
 `msg_queue.c` is the shared state between the button and pager tasks and guards
 itself with a mutex. Anything the two tasks pass across (ack requests) goes
@@ -99,9 +101,12 @@ load-bearing and shouldn't be "cleaned up".
   carried — which is why `pager_msg_t` and the ack queue both carry one instead
   of using a single configured id. The bot token is the only access control.
   Messages with no chat id are dropped: they could be shown but never answered.
-- **The update offset advances past dropped updates too** (non-message updates,
-  messages with no chat). A stalled offset makes Telegram replay the same batch
-  forever.
+  A page from inline mode is the deliberate exception — it has no chat id and
+  is marked through its `inline_message_id` instead (see "Inline mode").
+- **The update offset advances past dropped updates too** (updates of a type
+  nothing handles, messages with no chat, a `chosen_inline_result` for a card
+  that is not the page card). A stalled offset makes Telegram replay the same
+  batch forever.
 - **The message queue drops its oldest entry when full** and counts the drops,
   which the header surfaces next to a warning icon — a dropped message can never
   be acknowledged, so it is not silently discarded.
@@ -188,22 +193,72 @@ the pager must react the instant the key goes down.
 
 ### Chat commands
 
-`commands.c` answers `/ping` and `/status` in the chat they came from.
+`commands.c` answers `/ping`, `/status` and `/last N` in the chat they came
+from, and turns `/pager <text>` into a page.
 `pager_task` runs `filter_commands()` over every poll batch *before* anything
 else sees it and closes the gaps in place, so a command never reaches
 `msg_queue`, the screen, `screen_activity()` or the delivery receipt — it is a
 question about the device, not a page, and nothing about it should need a
-button press to clear.
+button press to clear. The contact list is the single exception, and
+deliberately so: `contacts_note()` runs over the raw batch just above, because
+someone who only ever asks `/status` is still someone who talks to this pager
+(see "Contacts and the boot announcement").
+
+**`/pager <text>` is the exception to all of that**, and the reason
+`commands_try_handle()` takes a non-const `pager_msg_t`. It is a command in
+form only: it `memmove`s its own prefix off the front of `msg->text` and
+returns `COMMAND_NONE`, so `filter_commands()` keeps it and what reaches the
+queue, the glass, the SD card and the receipt is the text alone — an ordinary
+page, from whoever sent it, cleared by an ordinary button press.
+
+It exists for **groups**. A bot with privacy mode on (BotFather's default) is
+only shown messages that address it, so a plain line of text in a group never
+arrives at all; a command always does. Without `/pager` the only way to page
+from a group is to turn privacy mode off and have the bot receive every message
+in the room. The rewrite is done *before* the `chat_id == 0` guard, since it
+needs no chat to answer in — a page sent inline may carry the prefix too. A
+bare `/pager` falls through to an answer explaining the form, rather than
+paging an empty page someone then has to clear.
+
+**`/last N` reads the queue back out into the chat** — the N newest unread
+pages, oldest of the selection first so the listing runs down the way the chat
+around it does. It reads and nothing more: no pop, no receipt, the pages stay
+unacknowledged, because only the BOOT key means "I have seen this" and a
+listing must not clear a page off the glass of a pager sitting in someone
+else's pocket. `msg_queue_peek_recent()` exists for it and indexes from the
+*newest* end on purpose — pops take from the oldest, so an index there keeps
+naming the same page, and a BOOT press mid-listing can only drop the oldest few
+of the range rather than shift an entry into it twice.
+
+Everything about the reply's size is a consequence of `sendMessage` refusing
+more than 4096 characters while a single page may be `APP_MSG_TEXT_MAX` bytes
+on its own: each page is clipped to `APP_LAST_TEXT_MAX` on a UTF-8 boundary
+(with `…`, the same cut `copy_utf8()` makes, done as a length so it can go
+through `append()`), at most `APP_LAST_MAX_PAGES` of them go in, and
+`COMMANDS_LAST_MAX` is *derived* from those two and `_Static_assert`ed against
+the 4096 — raising a knob cannot silently start truncating the last page in the
+reply. A bare `/last` uses `APP_LAST_DEFAULT_PAGES`; a number above the cap is
+clamped rather than refused, since the title reports how many of how many came
+back, but anything that is not a plain positive number gets the usage text
+instead of a guess.
+
+`command_arg()` is what makes that possible: it returns the text after
+`/name` (and after Telegram's `/name@thisbot` form) with the separating
+whitespace skipped, or NULL for "not this command". `is_command()` is now a
+thin wrapper on it, so both share the one parser — including the check that
+stops `/statuses` from answering as `/status`, and the newline-as-separator
+rule that lets a multi-line page start on the line under the command.
 
 Only the names listed in `commands_try_handle()` are treated this way; every
 other message starting with `/` is paged as usual. Adding a command means
 adding a branch there plus one `X(...)` line (both language columns) and its
 `#define STR_*` accessor in `ui_strings.h` — `STR_CMD_*` are sent to Telegram,
-not drawn, so they may use emoji the pager fonts do not carry (spelled as
-escaped bytes, per the receipt convention). Since `STR_*` are function calls
+not drawn, so they may use emoji in colour and without regard for what the
+pager fonts carry (spelled as escaped bytes, per the receipt convention).
+Since `STR_*` are function calls
 now, a format string like `STR_CMD_STATUS_WIFI_FMT` cannot be pasted next to a
-literal label; `build_status()` emits label and format as separate `append()`
-calls for exactly that reason.
+literal label; `commands_build_status()` emits label and format as separate
+`append()` calls for exactly that reason.
 The technical tokens in the reply (`SOCKS5`, the `esp_reset_reason()` names)
 are deliberately untranslated: they read like `esp_err_to_name()` output.
 
@@ -216,6 +271,123 @@ idle text would wipe the footer feedback before it could be read.
 The status reply reports *whether* a proxy is in use, never which one. There
 is no allow-list on commands, matching the messages: the token is the access
 control.
+
+### Inline mode
+
+`inline_mode.c` answers `@thisbot ...` typed in any chat, member or not. It is
+the same shape as `commands.c` — a policy module the pager task calls, with
+`telegram.c` owning the wire format — and it reuses `commands_build_status()`
+so there is one status report in one format however it was asked for. An empty
+query offers the status and ping cards; anything typed offers one card that
+pages the device.
+
+The load-bearing parts are all consequences of one fact: **inline mode never
+tells the bot which chat the message landed in.**
+
+- **There is no chat id, so there can be no reaction.** `setMessageReaction`
+  takes `chat_id` + `message_id` and has no inline form. The only handle a bot
+  gets on a posted inline message is `inline_message_id`, and the only thing it
+  can do with it is `editMessageText`. That is why a page that arrived inline
+  is marked by rewriting its own message (`mark_inline_page()`) while an
+  ordinary one is marked with a reaction (`mark_chat_message()`).
+- **Telegram hands back an `inline_message_id` only for a result that carries
+  an inline keyboard**, which is the entire reason the page card has a `⏳`
+  button (`telegram_inline_result_t.track`). Removing it would silently cost
+  every inline page both of its receipts. Both marks omit `reply_markup` on the
+  edit, which is what drops the button again.
+- **A `chosen_inline_result` is only a page when its `result_id` is
+  `TELEGRAM_INLINE_RESULT_PAGE`.** The status and ping cards produce the same
+  update when picked, and acting on those would page the device with the text
+  it just printed about itself.
+- **`ChosenInlineResult` carries no `date`**, unlike a `Message` — it is an
+  event, not a thing with a send time — so inline pages are stamped with
+  `time(NULL)`. It also carries no message id, so `telegram.c` hands out a
+  negative synthetic one from `s_inline_seq`; the queue, `ui.c` and `sd_log.c`
+  all key a page on `(chat_id, message_id)` and would otherwise see every
+  inline page as the same one. `ui.c` compares `inline_message_id` too, because
+  that counter restarts at every boot while restored pages do not.
+- **Only the newest inline query per user in a batch is answered**
+  (`dedupe_queries()` in `pager_task.c`). Telegram fires one per keystroke and
+  each answer here costs a full TLS handshake; the superseded ones would be
+  refused anyway.
+- **The `⏳` button is answered, not ignored.** `callback_query` is in
+  `allowed_updates` and `answer_inline()` dismisses the spinner with a toast —
+  the button lingers for as long as the device is offline, and a button that
+  spins forever when tapped reads as a broken bot.
+- **`commands_try_handle()` returns `COMMAND_NONE` for an inline page.** A
+  command that cannot be answered must not also be swallowed, so `@thisbot
+  /status` sent as a *page* is shown on the glass like any other text.
+- Enabling any of this is a BotFather matter — `/setinline` plus
+  `/setinlinefeedback` = Enabled. There is no Bot API method for either, and
+  without the second one a picked page never reaches the device at all.
+
+### Receipts
+
+Both receipts are reactions now rather than replies: `👌` on arrival, `👀` on
+the BOOT press. A bot holds exactly one reaction per message, so the second
+replaces the first, which is the progression wanted. Two things constrain this
+and are not preferences:
+
+- **`✅` is not in Telegram's reaction set.** The allowed list is 73 fixed
+  emoji and there is no green check mark in it; `👌` is the closest thing to
+  "received". `👀` is in the list.
+- **Reactions can be refused** — channels forbid them for bots, and any chat can
+  turn them off — so `mark_chat_message()` falls back to the old
+  `STR_RECEIPT_*` text reply. A refused reaction must not cost the receipt.
+
+The read receipt travels from the button task to the pager task through
+`ack_req_t`, which for an inline page has to carry the message text as well:
+`editMessageText` replaces the whole body, so the body has to survive the trip.
+It is `strdup`'d rather than a fixed field, because a field would put
+`APP_INLINE_QUERY_MAX` bytes in every slot of the ack queue for the sake of the
+few that are inline. `drain_acks()` owns the `free`, including on the
+queue-full path.
+
+### Contacts and the boot announcement
+
+`contacts.c` remembers every chat that has written to the pager and, once the
+link is up, tells each of them in turn that the device is back
+(`STR_BOOT_ANNOUNCE`, "📟 Пейджер включён"). A pager that lost power otherwise
+leaves the people paging it unable to tell "nobody has written" from "it has
+been off since Tuesday". It is the same shape as `commands.c` and
+`inline_mode.c` — a policy module the pager task calls, with `telegram.c`
+owning the wire format — and it is the only thing in the firmware that speaks
+without being spoken to, which is why `telegram_send_message()` exists next to
+`telegram_reply()`.
+
+- **The list is keyed on the chat, not the person**, exactly as the receipts
+  are: a chat id is what the firmware can address, so a group that pages the
+  device is one entry and gets the announcement in the group. `name` is stored
+  for the log and nothing else.
+- **A page that arrived inline is not a contact.** Inline mode never tells the
+  bot which chat the message landed in, so there is nowhere to announce into;
+  `contacts_note()` ignores a zero chat id, the same guard the receipts use.
+- **Senders are recorded before `filter_commands()`**, over the raw poll batch,
+  so a chat that only ever sends `/status` is on the list too — asking the
+  device how it is doing is as much "I am talking to this pager" as a page is.
+  This is the one place where a command is not invisible to the rest of the
+  firmware.
+- **The whole list is one NVS blob**, not a key per entry: at
+  `APP_CONTACTS_MAX` it is about a kilobyte, and one write means the stored
+  list can never be half of two different ones.
+- **`last_seen` is always the value that is on flash.** It orders the eviction
+  and nothing else, so it is refreshed at most once per `APP_CONTACTS_TOUCH_S`
+  rather than on every message — the field and the blob cannot disagree,
+  because the field only moves when a write is about to happen. A full list
+  drops its least recently seen entry: a pager remembers who is still paging
+  it.
+- **A failed announcement does not forget the contact.** Far more often it is a
+  link that is not fully up than a chat that has blocked the bot, and
+  forgetting someone costs them every future announcement while retrying costs
+  one handshake per boot.
+- The announcement runs *before* the first poll, which is what makes it mean "I
+  have just come up", and costs one TLS handshake per contact — a few seconds
+  at the default 16. Set `APP_ANNOUNCE_ON_BOOT` to 0 to keep the list but stay
+  quiet. `/status` reports the count, since there is no other way to see the
+  list without a serial cable.
+- **`contacts_init()` failing is not fatal**, unlike `msg_store_init()`: losing
+  the list costs an announcement, not a page someone is waiting to read, so the
+  module logs and runs unpersisted for that session.
 
 ### Display and fonts
 
@@ -301,9 +473,41 @@ whichever language the device is configured for. If regenerating, keep
 `--no-compress`: LVGL decodes compressed glyph bitmaps only with
 `CONFIG_LV_USE_FONT_COMPRESSED`, which is off.
 
+#### Emoji
+
+Each font merges a third face, **monochrome Noto Emoji**, over the whole emoji
+range (~1400 glyphs per size, ~470 KB of firmware). `tools/gen_fonts.sh`
+downloads it into the gitignored `tools/.fontcache/`; everything else about the
+pipeline is unchanged, and the merge leaves `line_height`/`base_line` exactly
+where they were, so nothing in `ui.c` had to move.
+
+- **Monochrome, not Noto Color Emoji, and that is not a compromise made for
+  space.** `lv_font_conv` rasterises outlines; a colour font keeps its glyphs
+  as embedded CBDT/sbix bitmaps it cannot read at all. Line art is also what
+  survives 14 px on this glass — the header font is smaller than a colour
+  sticker's own bitmap strike.
+- **No shortlist.** An emoji the sender picked and the pager swallows is a
+  worse failure than the flash it costs, and the factory partition still has
+  ~950 KB free. `lv_font_conv` keeps only codepoints the face actually has, so
+  the loose upper bounds in `EMOJI_RANGES` are free.
+- **`0x200D` (ZWJ) and `0xFE0F` (VS16) are in the range list on purpose.** Noto
+  maps both to a zero-advance empty glyph, which is what makes `❤️` and the ZWJ
+  families Telegram sends draw their base glyphs and nothing else.
+- **The skin-tone modifiers `0x1F3FB-0x1F3FF` are excluded on purpose**, which
+  is why the range breaks at `0x1F3FA`. They are not zero-width — Noto draws
+  them as a filled swatch, so `👍🏽` would arrive as a thumb plus a blob.
+- **`CONFIG_LV_USE_FONT_PLACEHOLDER=n` is half of that decision, not a separate
+  one.** Unmapped codepoints draw as nothing rather than LVGL's hollow box, so
+  the excluded modifiers vanish instead of leaving a gap after every emoji.
+  The price is that a script the device genuinely cannot draw is silent — for
+  CJK neither a blank nor a row of boxes is readable, so the quiet one wins.
+  Turning the placeholder back on means revisiting the modifier range with it.
+- Regional indicators are kept. Monochrome Noto has no flags, so `🇷🇺` comes out
+  as the boxed letters `RU` — the designed fallback, and legible here.
+
 ### Storage
 
-Three independent things live in flash/on card, and they must not be confused
+Four independent things live in flash/on card, and they must not be confused
 with one another:
 
 - **`msg_store.c` — the unread queue, in NVS namespace `pager`.** Every push
@@ -316,8 +520,13 @@ with one another:
 - **`settings.c` — device settings, in NVS namespace `cfg`.** Separate
   namespace on purpose: a queue-format change must not take the WiFi
   credentials with it, and vice versa.
+- **`contacts.c` — who has written to the pager, in NVS namespace `contacts`.**
+  Its own namespace for the same reason, and the whole list is one blob rather
+  than a key per entry (see "Contacts and the boot announcement").
 - **`sd_log.c` — one file per paged message on the TF card**, at
-  `/sdcard/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt`. Entirely
+  `/sdcard/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt` — or under
+  `inline/` for a page that has no chat, since a directory named `0` would read
+  like a bug rather than a fact about how the page arrived. Entirely
   best-effort: a missing card or a failed write is logged and ignored, never
   blocks the pager and never loses a page from the queue. The card shares SPI2
   with the LCD (only CS/MISO are its own), so the bus is initialised once in
@@ -328,8 +537,11 @@ with one another:
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  long-hold threshold, the provisioning AP name/channel and the fallback TZ.
-  Compile-time knobs only: nothing a user configures per device lives here.
+  `/last` limits, the inline-mode buffer sizes, the contact-list size and boot
+  announcement switch, the long-hold threshold, the provisioning AP
+  name/channel and the fallback TZ. Compile-time knobs only: nothing a user
+  configures per device lives here — and note that inline mode itself is not a
+  knob at all, it is switched on for the bot in BotFather.
 - `src/settings.h` / `settings.c` — the runtime, per-device settings (NVS `cfg`).
   Anything a user sets on the portal form belongs here, not in `app_config.h`.
 - `src/ui_strings.h` — the both-language string list (see below).
@@ -337,6 +549,28 @@ with one another:
   bridge), `LV_COLOR_DEPTH_16` with a manual byte swap in the flush callback (do
   not also enable `LV_COLOR_16_SWAP`), full mbedTLS cert bundle and 16 kB TLS
   input buffer. `sdkconfig.esp32-c6-lcd-1_47` is generated from it.
+
+  It also carries a block of size settings that are not defaults, and each of
+  them is a claim about this firmware rather than a preference:
+  `COMPILER_OPTIMIZATION_SIZE` (`-Os`, with silent assertions — the factory
+  partition is 3000K and the fonts are ~530K of it); an explicit `LV_USE_*`
+  list, because `lv_theme_default`'s `theme_apply()` names the class of every
+  widget it knows and so keeps one linked in whether or not anything creates
+  one — the UI is labels and plain objects in a flex column, and adding a
+  widget to `ui.c` means turning its option back on; `LV_USE_CLIB_MALLOC`, so
+  LVGL takes what it needs from the system heap instead of reserving a 64 kB
+  static pool the TLS handshake could have used; only the two software blend
+  destinations that exist here (`RGB565` for the display buffer, `ARGB8888`
+  for an intermediate layer — `RGB565_SWAPPED` is *not* one of them, since
+  `display.c` swaps the finished buffer itself through
+  `lv_draw_sw_rgb565_swap()`, which is compiled regardless); `TLS_CLIENT_ONLY`
+  and a three-curve list, the pager dialling out and never being dialled;
+  and `LWIP_IPV6=n`, every address here being v4.
+
+  `-Os` is also why `format_stamp()` in `commands.c` and `slot_key()` in
+  `msg_store.c` run their arguments through a modulo that can never fire: the
+  range propagation `-Og` did not do turns an in-range `struct tm` field into
+  a `-Wformat-truncation` error, and the modulo is what states the bound.
 - `partitions.csv` — custom table; the default single-app layout's 1 MB app
   partition is too small for LVGL + mbedTLS + WiFi + httpd, and NVS has to hold
   the persisted queue *and* the settings. The board has 4 MB flash, not the

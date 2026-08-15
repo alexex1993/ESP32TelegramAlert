@@ -31,9 +31,12 @@ static lv_obj_t *s_footer_label;
 // repaint, including ones that leave the head of the queue alone (a new
 // message arriving behind it, say), and restarting the scroll on those would
 // yank the text back to the top mid-read. message_id is only unique within a
-// chat, so the pair is the identity.
+// chat, so the pair is the identity -- plus the inline id, because a page that
+// arrived inline has no chat and only a synthetic message id, which is handed
+// out by a counter that restarts at every boot.
 static int64_t s_shown_chat_id;
 static int64_t s_shown_message_id;
+static char s_shown_inline_id[APP_INLINE_MSG_ID_MAX];
 static bool s_shown_valid;
 
 void ui_init(lv_display_t *disp)
@@ -197,7 +200,8 @@ void ui_render_queue(void)
 
     bool body_changed = (have != s_shown_valid) ||
                         (have && (msg.message_id != s_shown_message_id ||
-                                  msg.chat_id != s_shown_chat_id));
+                                  msg.chat_id != s_shown_chat_id ||
+                                  strcmp(msg.inline_message_id, s_shown_inline_id) != 0));
     if (body_changed) {
         if (have) {
             lv_label_set_text(s_sender_label, msg.from);
@@ -212,6 +216,8 @@ void ui_render_queue(void)
         s_shown_valid = have;
         s_shown_chat_id = have ? msg.chat_id : 0;
         s_shown_message_id = have ? msg.message_id : 0;
+        snprintf(s_shown_inline_id, sizeof(s_shown_inline_id), "%s",
+                 have ? msg.inline_message_id : "");
     }
     display_lvgl_unlock();
 }

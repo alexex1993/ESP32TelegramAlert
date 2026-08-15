@@ -114,7 +114,7 @@ after `fullclean` completion is broken until the next build regenerates it.
 | `src/app_config.h` | board pins, queue sizes, timeouts, Telegram tuning, provisioning AP name |
 | `src/ui_strings.h` | both-language string tables (X-macro), resolved at runtime (see below) |
 | `src/settings.c` | runtime device settings in NVS (cfg): token, wifi, tz, language, proxy |
-| `sdkconfig.defaults` | console USB-Serial-JTAG, RGB565 + manual byte swap, full mbedTLS bundle, 16 kB TLS in-buffer, 4 MB flash |
+| `sdkconfig.defaults` | console USB-Serial-JTAG, RGB565 + manual byte swap, full mbedTLS bundle, 16 kB TLS in-buffer, 4 MB flash, and the size block: `-Os`, the explicit `LV_USE_*` widget list, LVGL on the system heap, two blend destinations, client-only TLS, no IPv6 |
 | `partitions.csv` | custom table (LVGL+mbedTLS+WiFi+httpd > the default 1 MB app slot); NVS for the persisted queue + settings |
 | `platformio.ini` | one env `esp32-c6-lcd-1_47`, 4 MB flash override |
 
@@ -166,9 +166,23 @@ These are commented at the site; do not "clean them up":
   live on a task stack (the batch is `static`, button stack sized for two).
   Raising `APP_MSG_QUEUE_LEN` past 64 risks heap exhaustion at TLS handshake.
 - Body scroll restarts **only when the queue head changes**, keyed on
-  `(chat_id, message_id)`; `ui_render_queue()` repaints that leave the head
-  alone must not jerk the text. `ui_init` paints the empty-queue state itself
-  because of that short-circuit.
+  `(chat_id, message_id, inline_message_id)`; `ui_render_queue()` repaints that
+  leave the head alone must not jerk the text. `ui_init` paints the empty-queue
+  state itself because of that short-circuit.
+- **Inline mode has no chat id, and everything odd about it follows from that**
+  (`inline_mode.c`, "Inline mode" in CLAUDE.md): a page sent inline is marked by
+  editing its own message, not with a reaction; the `⏳` button exists only
+  because Telegram withholds `inline_message_id` from a result with no keyboard;
+  a `chosen_inline_result` is a page only when `result_id` is
+  `TELEGRAM_INLINE_RESULT_PAGE`; the message id is a synthetic negative counter
+  and the date is `time(NULL)`, because `ChosenInlineResult` supplies neither.
+  Enabling it is a BotFather matter (`/setinline` **and** `/setinlinefeedback`),
+  not a firmware one.
+- **Receipts are reactions with a text fallback** (`mark_chat_message()`): `👌`
+  delivered, `👀` read, one reaction per bot so the second replaces the first.
+  `✅` is *not* in Telegram's fixed 73-emoji reaction set — do not "fix" the
+  delivered emoji to a check mark. Channels and opted-out chats refuse
+  reactions, hence the fallback to the old `STR_RECEIPT_*` reply.
 - Text is UTF-8 truncated on character boundaries (`copy_utf8` in
   `telegram.c`); `APP_MSG_TEXT_MAX` is bytes (Cyrillic = 2/char). This, not
   the scroll, is what caps a long message — a tighter cut looks like a scroll
@@ -190,10 +204,31 @@ These are commented at the site; do not "clean them up":
 every other `/…` message is paged as ordinary text. Adding one means: a new
 branch there, plus a `STR_CMD_*` line in the `UI_STRING_LIST` X-macro in
 `ui_strings.h` (English *and* Russian columns) and a matching `#define STR_*`
-accessor. Keep the reply buffer `static` (the TLS handshake runs on the pager
-stack while it is live), and keep `pager_task`'s skip of `idle_status()` on a
-command-answering lap — otherwise the idle text wipes the footer feedback
-before it can be read.
+accessor. Use `command_arg()` if the command takes an argument and
+`is_command()` if it does not — both share one parser, so `/statuses` cannot
+answer as `/status`. Keep the reply buffer `static` (the TLS handshake runs on
+the pager stack while it is live), and keep `pager_task`'s skip of
+`idle_status()` on a command-answering lap — otherwise the idle text wipes the
+footer feedback before it can be read.
+
+**`/pager <text>` is not like the others** and `msg` is non-const because of
+it: it strips its own prefix in place and returns `COMMAND_NONE`, so the text
+is paged as an ordinary message instead of answered. It exists so a group can
+page the device without the bot's privacy mode being turned off — under privacy
+mode a bot in a group only sees messages that address it, and a command always
+does. Do not "tidy" it into a normal answering branch.
+
+## Adding an inline card
+
+`inline_answer_query()` in `inline_mode.c` builds the cards; `telegram.c` owns
+the JSON. A card is one `telegram_inline_result_t`: `id`, `title`, optional
+`description`, the `text` that gets posted, and `track` — set `track` only for a
+card that pages the device, since it is what attaches the `⏳` button and buys
+back an `inline_message_id`. A card whose `id` is not
+`TELEGRAM_INLINE_RESULT_PAGE` is answered and then ignored when picked, which is
+what keeps the status cards from paging the device with its own report. Strings
+go in `ui_strings.h` like everything else; they are sent to Telegram rather than
+drawn, so they may use emoji the pager fonts do not carry.
 
 ## UI strings
 

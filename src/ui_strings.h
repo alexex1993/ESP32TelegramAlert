@@ -52,6 +52,7 @@
     X(CMD_STATUS_PROXY_NONE,"direct",                         "напрямую") \
     X(CMD_STATUS_QUEUE,   "Queue",                            "Очередь") \
     X(CMD_STATUS_DROPPED, "dropped",                          "потеряно") \
+    X(CMD_STATUS_CONTACTS,"Contacts",                         "Контакты") \
     X(CMD_STATUS_SCREEN,  "Screen",                           "Экран") \
     X(CMD_STATUS_SCREEN_ON,"on",                              "горит") \
     X(CMD_STATUS_SCREEN_OFF,"off",                            "погашен") \
@@ -60,8 +61,33 @@
     X(CMD_STATUS_RESET,   "Last reset",                       "Последний сброс") \
     X(CMD_STATUS_CLOCK,   "Clock",                            "Часы") \
     X(CMD_STATUS_CLOCK_UNSYNCED,"not synced",                 "не синхронизированы") \
+    X(CMD_PAGER_USAGE,    "Send /pager followed by the text to show on the pager.", "Отправьте /pager и текст, который нужно показать на пейджере.") \
+    X(CMD_LAST_TITLE_FMT, "\xF0\x9F\x93\x9C Last %d of %d unread", "\xF0\x9F\x93\x9C \xD0\x9F\xD0\xBE\xD1\x81\xD0\xBB\xD0\xB5\xD0\xB4\xD0\xBD\xD0\xB8\xD0\xB5 %d \xD0\xB8\xD0\xB7 %d \xD0\xBD\xD0\xB5\xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85") /* "📜 Last %d of %d unread" / "📜 Последние %d из %d непрочитанных" */ \
+    X(CMD_LAST_EMPTY,     "\xF0\x9F\x93\xAD Nothing is waiting on the pager.", "\xF0\x9F\x93\xAD \xD0\x9D\xD0\xB0 \xD0\xBF\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80\xD0\xB5 \xD0\xBD\xD0\xB5\xD1\x82 \xD0\xBD\xD0\xB5\xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9.") /* "📭 Nothing is waiting on the pager." / "📭 На пейджере нет непрочитанных сообщений." */ \
+    X(CMD_LAST_USAGE_FMT, "Send /last N to see the N newest unread pages (1-%d). The pages stay on the pager -- only the BOOT key clears them.", "Отправьте /last N, чтобы посмотреть N последних непрочитанных страниц (1-%d). Страницы остаются на пейджере — снять их можно только кнопкой BOOT.") \
     X(CMD_ANSWERED,       "Command answered",                 "Команда выполнена") \
     X(CMD_FAILED,         "Command reply not delivered",      "Ответ на команду не доставлен") \
+    /* Reactions. Both columns are the same emoji on purpose: a reaction is a
+       Telegram token picked from a fixed list, not prose, so there is nothing
+       to translate -- and only these two are ever set. Note that "checkmark"
+       is NOT in Telegram's allowed reaction set; the closest to "received" it
+       offers is the OK hand below. */ \
+    X(REACTION_DELIVERED, "\xF0\x9F\x91\x8C", "\xF0\x9F\x91\x8C") /* "👌" */ \
+    X(REACTION_READ,      "\xF0\x9F\x91\x80", "\xF0\x9F\x91\x80") /* "👀" */ \
+    /* Boot announcement. The first is sent to Telegram, so its emoji is
+       spelled as escaped bytes like the other outgoing strings; the second is
+       the footer on the glass while it goes out. */ \
+    X(BOOT_ANNOUNCE,      "\xF0\x9F\x93\x9F Pager is online", "\xF0\x9F\x93\x9F \xD0\x9F\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80 \xD0\xB2\xD0\xBA\xD0\xBB\xD1\x8E\xD1\x87\xD1\x91\xD0\xBD") /* "📟 Pager is online" / "📟 Пейджер включён" */ \
+    X(BOOT_ANNOUNCING,    "Notifying contacts...",            "Оповещение контактов...") \
+    /* Inline mode ("@thisbot ..." typed in any chat) */ \
+    X(INLINE_PAGE_TITLE,  "\xF0\x9F\x93\x9F Send to pager", "\xF0\x9F\x93\x9F \xD0\x9E\xD1\x82\xD0\xBF\xD1\x80\xD0\xB0\xD0\xB2\xD0\xB8\xD1\x82\xD1\x8C \xD0\xBD\xD0\xB0 \xD0\xBF\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80") /* "📟 Send to pager" / "📟 Отправить на пейджер" */ \
+    X(INLINE_STATUS_DESC_FMT,"online · queue %u/%u",         "онлайн · очередь %u/%u") \
+    X(INLINE_PING_TITLE,  "\xF0\x9F\x8F\x93 Ping", "\xF0\x9F\x8F\x93 Ping") /* "🏓 Ping" */ \
+    X(INLINE_PING_DESC,   "check the link",                   "проверить связь") \
+    X(INLINE_PENDING,     "\xE2\x8F\xB3", "\xE2\x8F\xB3") /* "⏳" -- the button label that buys us an inline_message_id */ \
+    X(INLINE_PENDING_ALERT,"The pager has not received this yet","Пейджер ещё не получил это сообщение") \
+    X(INLINE_ANSWERED,    "Inline request answered",          "Инлайн-запрос обработан") \
+    X(INLINE_FAILED,      "Inline request not answered",      "Инлайн-запрос не обработан") \
     /* Provisioning (first-boot captive portal) */ \
     X(PROVISION_TITLE,    "Setup",                            "Настройка") \
     X(PROVISION_AP_LABEL, "1. Join this WiFi:",               "1. Подключитесь к WiFi:") \
@@ -121,6 +147,7 @@ void ui_set_language(int lang_id);
 #define STR_CMD_STATUS_PROXY_NONE   ui_str(STR_ID_CMD_STATUS_PROXY_NONE)
 #define STR_CMD_STATUS_QUEUE        ui_str(STR_ID_CMD_STATUS_QUEUE)
 #define STR_CMD_STATUS_DROPPED      ui_str(STR_ID_CMD_STATUS_DROPPED)
+#define STR_CMD_STATUS_CONTACTS     ui_str(STR_ID_CMD_STATUS_CONTACTS)
 #define STR_CMD_STATUS_SCREEN       ui_str(STR_ID_CMD_STATUS_SCREEN)
 #define STR_CMD_STATUS_SCREEN_ON    ui_str(STR_ID_CMD_STATUS_SCREEN_ON)
 #define STR_CMD_STATUS_SCREEN_OFF   ui_str(STR_ID_CMD_STATUS_SCREEN_OFF)
@@ -129,8 +156,24 @@ void ui_set_language(int lang_id);
 #define STR_CMD_STATUS_RESET        ui_str(STR_ID_CMD_STATUS_RESET)
 #define STR_CMD_STATUS_CLOCK        ui_str(STR_ID_CMD_STATUS_CLOCK)
 #define STR_CMD_STATUS_CLOCK_UNSYNCED ui_str(STR_ID_CMD_STATUS_CLOCK_UNSYNCED)
+#define STR_CMD_PAGER_USAGE         ui_str(STR_ID_CMD_PAGER_USAGE)
+#define STR_CMD_LAST_TITLE_FMT      ui_str(STR_ID_CMD_LAST_TITLE_FMT)
+#define STR_CMD_LAST_EMPTY          ui_str(STR_ID_CMD_LAST_EMPTY)
+#define STR_CMD_LAST_USAGE_FMT      ui_str(STR_ID_CMD_LAST_USAGE_FMT)
 #define STR_CMD_ANSWERED            ui_str(STR_ID_CMD_ANSWERED)
 #define STR_CMD_FAILED              ui_str(STR_ID_CMD_FAILED)
+#define STR_REACTION_DELIVERED      ui_str(STR_ID_REACTION_DELIVERED)
+#define STR_REACTION_READ           ui_str(STR_ID_REACTION_READ)
+#define STR_BOOT_ANNOUNCE           ui_str(STR_ID_BOOT_ANNOUNCE)
+#define STR_BOOT_ANNOUNCING         ui_str(STR_ID_BOOT_ANNOUNCING)
+#define STR_INLINE_PAGE_TITLE       ui_str(STR_ID_INLINE_PAGE_TITLE)
+#define STR_INLINE_STATUS_DESC_FMT  ui_str(STR_ID_INLINE_STATUS_DESC_FMT)
+#define STR_INLINE_PING_TITLE       ui_str(STR_ID_INLINE_PING_TITLE)
+#define STR_INLINE_PING_DESC        ui_str(STR_ID_INLINE_PING_DESC)
+#define STR_INLINE_PENDING          ui_str(STR_ID_INLINE_PENDING)
+#define STR_INLINE_PENDING_ALERT    ui_str(STR_ID_INLINE_PENDING_ALERT)
+#define STR_INLINE_ANSWERED         ui_str(STR_ID_INLINE_ANSWERED)
+#define STR_INLINE_FAILED           ui_str(STR_ID_INLINE_FAILED)
 #define STR_PROVISION_TITLE         ui_str(STR_ID_PROVISION_TITLE)
 #define STR_PROVISION_AP_LABEL      ui_str(STR_ID_PROVISION_AP_LABEL)
 #define STR_PROVISION_URL_LABEL     ui_str(STR_ID_PROVISION_URL_LABEL)

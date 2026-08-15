@@ -16,7 +16,9 @@ static const char *KEY_META = "meta";
 // Bumped whenever the on-flash layout of meta or a slot changes. A mismatch
 // makes load() report empty so the caller wipes stale slot blobs and starts
 // clean rather than decoding last firmware's struct padding.
-#define MSG_STORE_VERSION  1
+// v2 added pager_msg_t.inline_message_id. The per-slot size check below would
+// have caught the growth on its own, but the version is what says so out loud.
+#define MSG_STORE_VERSION  2
 // "PAG1" --Pager Async Gatekeeper v1-- in little-endian. Just a guard
 // against reading random flash as if it were a meta blob.
 #define MSG_STORE_MAGIC    0x50414731u
@@ -31,10 +33,13 @@ typedef struct {
 
 static nvs_handle_t s_handle;
 
-// NVS keys are max 15 chars; "s%03u" -> "s000".."s031" is plenty.
+// NVS keys are max 15 chars; "s%03u" -> "s000".."s031" is plenty. The modulo
+// is not a guard on a real index -- every caller passes one below
+// APP_MSG_QUEUE_LEN -- it is what tells the compiler the number is three
+// digits, which at -Os it otherwise assumes could be ten (-Wformat-truncation).
 static void slot_key(size_t idx, char *buf, size_t buflen)
 {
-    snprintf(buf, buflen, "s%03u", (unsigned)idx);
+    snprintf(buf, buflen, "s%03u", (unsigned)idx % 1000u);
 }
 
 void msg_store_init(void)

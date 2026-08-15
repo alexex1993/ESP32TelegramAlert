@@ -13,13 +13,19 @@ managed_components/
 
 __pycache__/
 
+# tools/gen_fonts.sh downloads Noto Emoji here; the generated src/pager_font_*.c
+# are what gets committed, not the source typeface.
+tools/.fontcache/
+
 # Browser flasher: both are build output of tools/build_flasher.sh.
 dist/
 web/node_modules/
 web/package-lock.json
 
 .claude/
+.lance/
 
 # wrangler's local state, created by `wrangler pages deploy`.
 .wrangler/
+review.md
 

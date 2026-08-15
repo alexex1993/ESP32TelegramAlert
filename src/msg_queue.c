@@ -75,6 +75,21 @@ bool msg_queue_peek(pager_msg_t *out)
     return found;
 }
 
+bool msg_queue_peek_recent(size_t back, pager_msg_t *out)
+{
+    bool found = false;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (back < s_count) {
+        // The newest message sits one slot before the tail; walk backwards
+        // from there. back < s_count keeps the subtraction inside the ring.
+        size_t index = (s_head + s_count - 1 - back) % APP_MSG_QUEUE_LEN;
+        *out = s_slots[index];
+        found = true;
+    }
+    xSemaphoreGive(s_lock);
+    return found;
+}
+
 bool msg_queue_pop(pager_msg_t *out)
 {
     bool found = false;
