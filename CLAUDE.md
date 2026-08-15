@@ -226,8 +226,9 @@ Only the names listed in `commands_try_handle()` are treated this way; every
 other message starting with `/` is paged as usual. Adding a command means
 adding a branch there plus one `X(...)` line (both language columns) and its
 `#define STR_*` accessor in `ui_strings.h` — `STR_CMD_*` are sent to Telegram,
-not drawn, so they may use emoji the pager fonts do not carry (spelled as
-escaped bytes, per the receipt convention). Since `STR_*` are function calls
+not drawn, so they may use emoji in colour and without regard for what the
+pager fonts carry (spelled as escaped bytes, per the receipt convention).
+Since `STR_*` are function calls
 now, a format string like `STR_CMD_STATUS_WIFI_FMT` cannot be pasted next to a
 literal label; `commands_build_status()` emits label and format as separate
 `append()` calls for exactly that reason.
@@ -398,6 +399,38 @@ ASCII-only and would render Russian message text as boxes, which is true
 whichever language the device is configured for. If regenerating, keep
 `--no-compress`: LVGL decodes compressed glyph bitmaps only with
 `CONFIG_LV_USE_FONT_COMPRESSED`, which is off.
+
+#### Emoji
+
+Each font merges a third face, **monochrome Noto Emoji**, over the whole emoji
+range (~1400 glyphs per size, ~470 KB of firmware). `tools/gen_fonts.sh`
+downloads it into the gitignored `tools/.fontcache/`; everything else about the
+pipeline is unchanged, and the merge leaves `line_height`/`base_line` exactly
+where they were, so nothing in `ui.c` had to move.
+
+- **Monochrome, not Noto Color Emoji, and that is not a compromise made for
+  space.** `lv_font_conv` rasterises outlines; a colour font keeps its glyphs
+  as embedded CBDT/sbix bitmaps it cannot read at all. Line art is also what
+  survives 14 px on this glass — the header font is smaller than a colour
+  sticker's own bitmap strike.
+- **No shortlist.** An emoji the sender picked and the pager swallows is a
+  worse failure than the flash it costs, and the factory partition still has
+  ~950 KB free. `lv_font_conv` keeps only codepoints the face actually has, so
+  the loose upper bounds in `EMOJI_RANGES` are free.
+- **`0x200D` (ZWJ) and `0xFE0F` (VS16) are in the range list on purpose.** Noto
+  maps both to a zero-advance empty glyph, which is what makes `❤️` and the ZWJ
+  families Telegram sends draw their base glyphs and nothing else.
+- **The skin-tone modifiers `0x1F3FB-0x1F3FF` are excluded on purpose**, which
+  is why the range breaks at `0x1F3FA`. They are not zero-width — Noto draws
+  them as a filled swatch, so `👍🏽` would arrive as a thumb plus a blob.
+- **`CONFIG_LV_USE_FONT_PLACEHOLDER=n` is half of that decision, not a separate
+  one.** Unmapped codepoints draw as nothing rather than LVGL's hollow box, so
+  the excluded modifiers vanish instead of leaving a gap after every emoji.
+  The price is that a script the device genuinely cannot draw is silent — for
+  CJK neither a blank nor a row of boxes is readable, so the quiet one wins.
+  Turning the placeholder back on means revisiting the modifier range with it.
+- Regional indicators are kept. Monochrome Noto has no flags, so `🇷🇺` comes out
+  as the boxed letters `RU` — the designed fallback, and legible here.
 
 ### Storage
 

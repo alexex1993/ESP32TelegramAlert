@@ -8,6 +8,15 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
 
+# A codepoint the font does not carry draws as nothing, not as LVGL's hollow
+# rectangle. This is what makes the emoji ranges in tools/gen_fonts.sh work:
+# the skin-tone modifiers are deliberately left out of the font, and with the
+# placeholder on, every 👍🏽 would come through as a thumb plus an empty box.
+# The cost is that a script the pager genuinely cannot draw (CJK, say) is
+# silent rather than a row of boxes -- neither is readable, so the quieter one
+# wins. Flip this back to y and re-check the emoji before trusting the boxes.
+CONFIG_LV_USE_FONT_PLACEHOLDER=n
+
 # 16-bit RGB565 framebuffer, byte-swapped manually in the flush callback
 # (do not also enable CONFIG_LV_COLOR_16_SWAP -- that would double-swap).
 CONFIG_LV_COLOR_DEPTH_16=y
