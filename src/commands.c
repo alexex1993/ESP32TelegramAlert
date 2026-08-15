@@ -239,8 +239,14 @@ static void format_stamp(char *buf, size_t size, int64_t unix_utc)
     time_t shifted = (time_t)(unix_utc + (int64_t)settings_get()->tz_offset_hours * 3600);
     struct tm tm;
     gmtime_r(&shifted, &tm);
-    snprintf(buf, size, "[%02d-%02d %02d:%02d]", tm.tm_mon + 1, tm.tm_mday,
-             tm.tm_hour, tm.tm_min);
+    // The fields are printed through %02u after a modulo, not as the plain
+    // ints gmtime_r fills in. Their real ranges make the stamp 14 bytes, but
+    // nothing in the type says so, and at -Os the compiler assumes a full int
+    // and calls the buffer too small (-Wformat-truncation, an error here).
+    // The modulo is what states the bound; it never fires on real output.
+    snprintf(buf, size, "[%02u-%02u %02u:%02u]",
+             (unsigned)(tm.tm_mon + 1) % 100u, (unsigned)tm.tm_mday % 100u,
+             (unsigned)tm.tm_hour % 100u, (unsigned)tm.tm_min % 100u);
 }
 
 // sendMessage refuses anything longer, and the whole listing goes out as one

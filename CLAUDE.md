@@ -549,6 +549,28 @@ with one another:
   bridge), `LV_COLOR_DEPTH_16` with a manual byte swap in the flush callback (do
   not also enable `LV_COLOR_16_SWAP`), full mbedTLS cert bundle and 16 kB TLS
   input buffer. `sdkconfig.esp32-c6-lcd-1_47` is generated from it.
+
+  It also carries a block of size settings that are not defaults, and each of
+  them is a claim about this firmware rather than a preference:
+  `COMPILER_OPTIMIZATION_SIZE` (`-Os`, with silent assertions — the factory
+  partition is 3000K and the fonts are ~530K of it); an explicit `LV_USE_*`
+  list, because `lv_theme_default`'s `theme_apply()` names the class of every
+  widget it knows and so keeps one linked in whether or not anything creates
+  one — the UI is labels and plain objects in a flex column, and adding a
+  widget to `ui.c` means turning its option back on; `LV_USE_CLIB_MALLOC`, so
+  LVGL takes what it needs from the system heap instead of reserving a 64 kB
+  static pool the TLS handshake could have used; only the two software blend
+  destinations that exist here (`RGB565` for the display buffer, `ARGB8888`
+  for an intermediate layer — `RGB565_SWAPPED` is *not* one of them, since
+  `display.c` swaps the finished buffer itself through
+  `lv_draw_sw_rgb565_swap()`, which is compiled regardless); `TLS_CLIENT_ONLY`
+  and a three-curve list, the pager dialling out and never being dialled;
+  and `LWIP_IPV6=n`, every address here being v4.
+
+  `-Os` is also why `format_stamp()` in `commands.c` and `slot_key()` in
+  `msg_store.c` run their arguments through a modulo that can never fire: the
+  range propagation `-Og` did not do turns an in-range `struct tm` field into
+  a `-Wformat-truncation` error, and the modulo is what states the bound.
 - `partitions.csv` — custom table; the default single-app layout's 1 MB app
   partition is too small for LVGL + mbedTLS + WiFi + httpd, and NVS has to hold
   the persisted queue *and* the settings. The board has 4 MB flash, not the

@@ -114,7 +114,7 @@ after `fullclean` completion is broken until the next build regenerates it.
 | `src/app_config.h` | board pins, queue sizes, timeouts, Telegram tuning, provisioning AP name |
 | `src/ui_strings.h` | both-language string tables (X-macro), resolved at runtime (see below) |
 | `src/settings.c` | runtime device settings in NVS (cfg): token, wifi, tz, language, proxy |
-| `sdkconfig.defaults` | console USB-Serial-JTAG, RGB565 + manual byte swap, full mbedTLS bundle, 16 kB TLS in-buffer, 4 MB flash |
+| `sdkconfig.defaults` | console USB-Serial-JTAG, RGB565 + manual byte swap, full mbedTLS bundle, 16 kB TLS in-buffer, 4 MB flash, and the size block: `-Os`, the explicit `LV_USE_*` widget list, LVGL on the system heap, two blend destinations, client-only TLS, no IPv6 |
 | `partitions.csv` | custom table (LVGL+mbedTLS+WiFi+httpd > the default 1 MB app slot); NVS for the persisted queue + settings |
 | `platformio.ini` | one env `esp32-c6-lcd-1_47`, 4 MB flash override |
 
