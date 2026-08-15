@@ -23,10 +23,6 @@
 
 static const char *TAG = "commands";
 
-// A dozen short lines, with room for a 32-byte SSID and the widest number
-// every field can hold. Anything longer is truncated rather than split.
-#define STATUS_REPLY_MAX 640
-
 // Appends to a buffer that already holds *len bytes and never runs off the
 // end; *len is left as the new length so the next call carries on from there.
 static void append(char *buf, size_t size, size_t *len, const char *fmt, ...)
@@ -47,19 +43,23 @@ static void append(char *buf, size_t size, size_t *len, const char *fmt, ...)
     *len = ((size_t)written >= size - *len) ? size - 1 : *len + (size_t)written;
 }
 
-// True when text opens with "/name". Accepts Telegram's "/name@thisbot" form
-// (which is what a command sent in a group looks like) and ignores anything
-// after the name, so "/status please" still counts. Case-insensitive because
-// phone keyboards like to capitalise the first letter.
-static bool is_command(const char *text, const char *name)
+// Returns whatever follows "/name" in the message, with the whitespace that
+// separates them skipped -- so "" for a bare command and the argument for one
+// that carries anything. NULL when the text is not this command at all.
+//
+// Accepts Telegram's "/name@thisbot" form (which is what a command sent in a
+// group looks like). Case-insensitive because phone keyboards like to
+// capitalise the first letter. The result points into `text`, so it lives
+// exactly as long as the message does.
+static const char *command_arg(const char *text, const char *name)
 {
     if (text[0] != '/') {
-        return false;
+        return NULL;
     }
 
     size_t n = strlen(name);
     if (strncasecmp(text + 1, name, n) != 0) {
-        return false;
+        return NULL;
     }
 
     const char *rest = text + 1 + n;
@@ -70,7 +70,21 @@ static bool is_command(const char *text, const char *name)
         }
     }
     // Without this "/statuses" would answer as "/status".
-    return *rest == '\0' || *rest == ' ' || *rest == '\n';
+    if (*rest != '\0' && *rest != ' ' && *rest != '\n') {
+        return NULL;
+    }
+
+    // A newline counts as the separator too: "/pager" on its own line with the
+    // text under it is a perfectly ordinary way to send a multi-line page.
+    while (*rest == ' ' || *rest == '\n') {
+        rest++;
+    }
+    return rest;
+}
+
+static bool is_command(const char *text, const char *name)
+{
+    return command_arg(text, name) != NULL;
 }
 
 // Deliberately not translated: these are technical identifiers, read the same
@@ -133,7 +147,7 @@ static void format_clock(char *buf, size_t size)
              tz);
 }
 
-static void build_status(char *buf, size_t size)
+void commands_build_status(char *buf, size_t size)
 {
     size_t len = 0;
     buf[0] = '\0';
@@ -190,18 +204,52 @@ static void build_status(char *buf, size_t size)
     append(buf, size, &len, "%s: %s", STR_CMD_STATUS_CLOCK, scratch);
 }
 
-command_result_t commands_try_handle(const pager_msg_t *msg)
+command_result_t commands_try_handle(pager_msg_t *msg)
 {
     // Static for the same reason pager_task's poll batch is: only that task
     // calls this, and its stack has to hold the TLS handshake that the reply
     // below runs while this buffer is still live.
-    static char s_status[STATUS_REPLY_MAX];
+    static char s_status[COMMANDS_STATUS_MAX];
+
+    // "/pager <text>" is the one command that becomes a page instead of an
+    // answer: it strips its own prefix in place and reports COMMAND_NONE, so
+    // what reaches the queue, the glass, the SD card and the receipt is <text>
+    // alone -- an ordinary page from whoever sent it, cleared by an ordinary
+    // button press.
+    //
+    // That is what makes the pager reachable from a group at all. A bot with
+    // privacy mode on -- BotFather's default -- is only shown messages that
+    // address it, so a plain line of text in a group never arrives here, while
+    // a command always does.
+    //
+    // Ahead of the chat-id guard below on purpose: the rewrite needs no chat
+    // to answer in, so a page sent inline may carry the prefix too.
+    const char *page = command_arg(msg->text, "pager");
+    if (page && *page != '\0') {
+        // memmove, not strcpy: `page` points into the buffer being written.
+        memmove(msg->text, page, strlen(page) + 1);
+        return COMMAND_NONE;
+    }
+
+    // A page that arrived inline has no chat to answer in, and a command that
+    // cannot be answered must not be swallowed on top of that -- so "@thisbot
+    // /status" sent as a page is shown on the glass like any other text.
+    // Tested on the chat id rather than the inline id because that is what the
+    // reply below actually needs, and an inline page never has one.
+    if (msg->chat_id == 0) {
+        return COMMAND_NONE;
+    }
 
     const char *reply;
-    if (is_command(msg->text, "ping")) {
+    if (page) {
+        // "/pager" with nothing after it. Answering with what to do beats
+        // paging an empty page that someone then has to press the key to
+        // clear.
+        reply = STR_CMD_PAGER_USAGE;
+    } else if (is_command(msg->text, "ping")) {
         reply = STR_CMD_PONG;
     } else if (is_command(msg->text, "status")) {
-        build_status(s_status, sizeof(s_status));
+        commands_build_status(s_status, sizeof(s_status));
         reply = s_status;
     } else {
         return COMMAND_NONE;

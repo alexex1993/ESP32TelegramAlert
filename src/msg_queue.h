@@ -8,12 +8,25 @@
 
 // One paged message, waiting to be read and acknowledged.
 typedef struct {
-    int64_t chat_id;
+    int64_t chat_id;                 // Zero for a page that arrived inline.
     int64_t message_id;
     int64_t date;                    // Unix seconds, UTC, as sent by Telegram.
     char from[APP_MSG_FROM_MAX];     // Sender's display name, UTF-8.
     char text[APP_MSG_TEXT_MAX];     // Message body, UTF-8, possibly truncated.
+    // Set only for pages that arrived through inline mode, where Telegram
+    // never tells the bot which chat the message landed in. Everything that
+    // reports back -- both receipts -- has to edit the message through this
+    // id instead of addressing a chat. Empty for ordinary messages.
+    char inline_message_id[APP_INLINE_MSG_ID_MAX];
 } pager_msg_t;
+
+// True for a page that came from inline mode, i.e. one that can be reported
+// on but not replied to. A page with neither a chat id nor an inline id can
+// be shown but never marked; see send_delivery_receipt() in pager_task.c.
+static inline bool pager_msg_is_inline(const pager_msg_t *msg)
+{
+    return msg->inline_message_id[0] != '\0';
+}
 
 void msg_queue_init(void);
 

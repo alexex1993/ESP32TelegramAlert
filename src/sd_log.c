@@ -105,7 +105,14 @@ void sd_log_message(const pager_msg_t *msg)
     // hold the literal worst case even though the real values are tiny. The
     // actual strings are short; snprintf still null-terminates regardless.
     char chat_dir[48];
-    snprintf(chat_dir, sizeof(chat_dir), SD_LOG_ROOT "/%lld", (long long)msg->chat_id);
+    if (pager_msg_is_inline(msg)) {
+        // A page sent inline belongs to no chat -- filing it under a chat id
+        // of "0" would read like a bug in the tree rather than a fact about
+        // how it arrived.
+        snprintf(chat_dir, sizeof(chat_dir), SD_LOG_ROOT "/inline");
+    } else {
+        snprintf(chat_dir, sizeof(chat_dir), SD_LOG_ROOT "/%lld", (long long)msg->chat_id);
+    }
 
     char day_dir[96];
     snprintf(day_dir, sizeof(day_dir), "%s/%04d-%02d-%02d", chat_dir,
@@ -142,8 +149,13 @@ void sd_log_message(const pager_msg_t *msg)
     fprintf(f, "Date: %04d-%02d-%02d %02d:%02d:%02d UTC%+d\n",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
             tm.tm_hour, tm.tm_min, tm.tm_sec, (int)settings_get()->tz_offset_hours);
-    fprintf(f, "Chat: %lld\n", (long long)msg->chat_id);
-    fprintf(f, "Message: %lld\n", (long long)msg->message_id);
+    if (pager_msg_is_inline(msg)) {
+        fprintf(f, "Chat: inline\n");
+        fprintf(f, "Message: %s\n", msg->inline_message_id);
+    } else {
+        fprintf(f, "Chat: %lld\n", (long long)msg->chat_id);
+        fprintf(f, "Message: %lld\n", (long long)msg->message_id);
+    }
     fprintf(f, "\n%s\n", msg->text);
 
     if (fclose(f) != 0) {

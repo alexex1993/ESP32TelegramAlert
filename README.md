@@ -17,8 +17,13 @@ which drove an SSD1306 OLED via the FastBot library.
 - Long-polls the Telegram Bot API and pages every message anyone sends the bot —
   no chat id to configure, receipts go back to whoever wrote.
 - **Message queue** — up to 32 unread messages wait their turn; the header shows how many.
-- **BOOT key sends "✅ Read"** as a reply to the message on screen, then advances to the next one.
-- Replies "📨 Delivered" the moment a message arrives (as the original pager did).
+- **The BOOT key marks the message on screen 👀 read**, then advances to the next one.
+- **Marks it 👌 delivered the moment it arrives** (as the original pager did). Both
+  marks are *reactions* on the message rather than replies, so a busy chat does
+  not fill up with receipts — with the old text replies kept as a fallback
+  wherever reactions are refused.
+- **Inline mode** — type `@yourbot` in *any* chat, with the bot not in it, to page
+  the device or to drop its status into the conversation; see below.
 - **The screen sleeps on its own** — the backlight is lit only while something is
   unread, plus a 20 s grace window; a BOOT press wakes it without acknowledging
   anything.
@@ -37,6 +42,8 @@ which drove an SSD1306 OLED via the FastBot library.
   320×172 so Russian sentences wrap across the long edge instead of down a narrow column.
 - **`/status` and `/ping` from the chat** — ask the device how it is doing
   without a serial cable; see below.
+- **`/pager <text>`** — pages the device with `<text>`, which is how to reach it
+  from a group without turning the bot's privacy mode off.
 - Optional **SOCKS5 proxy**, with username/password authentication, for the
   Telegram connection.
 - **Captive-portal WiFi provisioning** — flash one image to every device, then
@@ -44,13 +51,14 @@ which drove an SSD1306 OLED via the FastBot library.
 
 ## Chat commands
 
-Two messages are answered by the firmware instead of being paged: they never
-reach the screen, take a queue slot or wait for a button press.
+Some messages are handled by the firmware instead of being paged as they are:
+they never reach the screen, take a queue slot or wait for a button press.
 
 | Command | Answer |
 | --- | --- |
 | `/ping` | `🏓 pong` — the poll loop is alive and the bot token still works. |
 | `/status` | Firmware revision and build date, uptime, SSID / RSSI / channel, IP, whether a proxy is in use, queue depth (and messages dropped by overflow), backlight state, free heap, the reason for the last reset, and the device clock. |
+| `/pager <text>` | Not an answer at all — `<text>` is paged. See below. |
 
 ```
 📟 Pager status
@@ -76,6 +84,83 @@ There is no allow-list here, for the same reason there is none on messages: the
 bot token is the access control, and whoever can page the device can also ask
 how it is doing. The proxy endpoint is deliberately *not* in the reply — only
 whether one is in use.
+
+### `/pager <text>` — paging from a group
+
+```
+/pager buy bread on the way home
+```
+
+shows **buy bread on the way home** on the screen — the prefix is stripped, and
+what is left is an ordinary page: your name above it, the time next to it, a
+queue slot, the 👌/👀 marks and a BOOT press to clear it.
+
+The point of it is groups. A bot with **privacy mode** on — @BotFather's default
+— is only shown messages that address it, so a plain line of text in a group
+never reaches the bot at all, and the pager stays silent. A command always
+reaches it. So `/pager …` pages the device from a group without turning privacy
+mode off, which you would otherwise have to do to make the bot see every message
+in the room.
+
+Writing to the bot in a private chat needs none of this — just send the text.
+`/pager` on its own, with nothing after it, answers with a reminder of the form
+rather than paging an empty page. `/pager@yourbot text` works too, which is how
+Telegram rewrites commands in groups.
+
+## Inline mode
+
+Type `@yourbot` into the message box of **any** chat — a group you are in, a
+private conversation, a channel — and the bot answers with a list you pick from,
+without ever being a member of that chat.
+
+| What you type | What you get |
+| --- | --- |
+| `@yourbot` | **📟 Pager status** and **🏓 Ping** — the same reports `/status` and `/ping` produce. Picking one posts it into the chat; the pager itself is not disturbed. |
+| `@yourbot buy bread` | **📟 Send to pager** — picking it posts *buy bread* into the chat **and** pages the device with it. |
+
+A page sent this way is marked in the chat as it travels, exactly like one sent
+to the bot directly:
+
+```
+buy bread              ← picked from the list
+[ ⏳ ]
+buy bread 👌           ← the pager received it
+buy bread 👀           ← the BOOT key was pressed
+```
+
+### Enabling it
+
+Inline mode cannot be switched on from the firmware — there is no Bot API method
+for it. Both of these are @BotFather settings, and **both** are needed:
+
+1. `/setinline` → pick the bot → type a placeholder, e.g. `message for the pager`.
+2. `/setinlinefeedback` → pick the bot → **Enabled**.
+
+Step 2 is the one that is easy to miss: without it Telegram never tells the bot
+which result was picked, so the message is posted into the chat and the pager
+never hears about it.
+
+### Things worth knowing
+
+- **The ⏳ button is not decoration.** Telegram only reports back an identifier
+  for a posted inline message if that message carries an inline keyboard, and
+  without that identifier the page could never be marked delivered or read — the
+  bot is never told which chat it landed in, so there is nothing to react *to*.
+  Both marks edit the message and remove the button with it, so it is on screen
+  only while the page is genuinely in flight. Tapping it meanwhile answers with
+  "the pager has not received this yet".
+- **Results take a moment to appear.** Every keystroke is a fresh query and this
+  device answers each one over its own TLS handshake, so the list lags a second
+  or so behind your typing. Only the newest query is answered; the ones you
+  typed past are dropped rather than paid for.
+- **`✅` is not available.** Telegram allows reactions only from a fixed list of
+  73 emoji and a green check mark is not among them, which is why "delivered" is
+  👌.
+- **Inline mode widens who can reach the pager.** There is no allow-list here
+  either — the token is the access control — but an inline query needs no chat
+  with the bot at all, so anyone who shares a group with someone who has the bot
+  can page the device. Leave inline mode off in @BotFather if that is not what
+  you want; the firmware simply never sees those updates.
 
 ## Hardware
 
@@ -208,11 +293,14 @@ one file per message:
 
 ```
 /TelegramPager/<chat id>/2026-08-10/21-20-07.txt
+/TelegramPager/inline/2026-08-10/21-22-13.txt
 ```
 
 Each file holds the sender, the message's own Telegram timestamp (shifted by
 the timezone you configured, so it matches the `[HH:MM]` on screen), the chat
-and message ids, and the full text. Logging is best-effort: no card, a
+and message ids, and the full text. Pages sent through inline mode belong to no
+chat, so they are filed under `inline/` and stamped with the device clock —
+Telegram reports a picked inline result as an event, without a send time. Logging is best-effort: no card, a
 write-protected card or a failed write is reported to the serial log and
 otherwise ignored — it never delays a page or a receipt. The card shares the
 LCD's SPI bus, so nothing extra is wired.

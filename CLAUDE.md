@@ -69,9 +69,9 @@ Three FreeRTOS tasks, created in this order from `app_main`:
   tracks hold time and fires a second, long-press callback at
   `APP_BUTTON_LONG_HOLD_MS` (see "Re-provisioning gesture").
 - **pager** (prio 4, `pager_task.c`) — the main loop: drain queued receipts →
-  long-poll `getUpdates` → answer and strip chat commands → push what is left →
-  repaint. Stack is 10 KB because the TLS handshake and chain verification run
-  here.
+  long-poll `getUpdates` → answer inline queries and button taps → answer and
+  strip chat commands → push what is left → repaint. Stack is 10 KB because the
+  TLS handshake and chain verification run here.
 
 `msg_queue.c` is the shared state between the button and pager tasks and guards
 itself with a mutex. Anything the two tasks pass across (ack requests) goes
@@ -99,9 +99,12 @@ load-bearing and shouldn't be "cleaned up".
   carried — which is why `pager_msg_t` and the ack queue both carry one instead
   of using a single configured id. The bot token is the only access control.
   Messages with no chat id are dropped: they could be shown but never answered.
-- **The update offset advances past dropped updates too** (non-message updates,
-  messages with no chat). A stalled offset makes Telegram replay the same batch
-  forever.
+  A page from inline mode is the deliberate exception — it has no chat id and
+  is marked through its `inline_message_id` instead (see "Inline mode").
+- **The update offset advances past dropped updates too** (updates of a type
+  nothing handles, messages with no chat, a `chosen_inline_result` for a card
+  that is not the page card). A stalled offset makes Telegram replay the same
+  batch forever.
 - **The message queue drops its oldest entry when full** and counts the drops,
   which the header surfaces next to a warning icon — a dropped message can never
   be acknowledged, so it is not silently discarded.
@@ -188,12 +191,36 @@ the pager must react the instant the key goes down.
 
 ### Chat commands
 
-`commands.c` answers `/ping` and `/status` in the chat they came from.
+`commands.c` answers `/ping` and `/status` in the chat they came from, and
+turns `/pager <text>` into a page.
 `pager_task` runs `filter_commands()` over every poll batch *before* anything
 else sees it and closes the gaps in place, so a command never reaches
 `msg_queue`, the screen, `screen_activity()` or the delivery receipt — it is a
 question about the device, not a page, and nothing about it should need a
 button press to clear.
+
+**`/pager <text>` is the exception to all of that**, and the reason
+`commands_try_handle()` takes a non-const `pager_msg_t`. It is a command in
+form only: it `memmove`s its own prefix off the front of `msg->text` and
+returns `COMMAND_NONE`, so `filter_commands()` keeps it and what reaches the
+queue, the glass, the SD card and the receipt is the text alone — an ordinary
+page, from whoever sent it, cleared by an ordinary button press.
+
+It exists for **groups**. A bot with privacy mode on (BotFather's default) is
+only shown messages that address it, so a plain line of text in a group never
+arrives at all; a command always does. Without `/pager` the only way to page
+from a group is to turn privacy mode off and have the bot receive every message
+in the room. The rewrite is done *before* the `chat_id == 0` guard, since it
+needs no chat to answer in — a page sent inline may carry the prefix too. A
+bare `/pager` falls through to an answer explaining the form, rather than
+paging an empty page someone then has to clear.
+
+`command_arg()` is what makes that possible: it returns the text after
+`/name` (and after Telegram's `/name@thisbot` form) with the separating
+whitespace skipped, or NULL for "not this command". `is_command()` is now a
+thin wrapper on it, so both share the one parser — including the check that
+stops `/statuses` from answering as `/status`, and the newline-as-separator
+rule that lets a multi-line page start on the line under the command.
 
 Only the names listed in `commands_try_handle()` are treated this way; every
 other message starting with `/` is paged as usual. Adding a command means
@@ -202,8 +229,8 @@ adding a branch there plus one `X(...)` line (both language columns) and its
 not drawn, so they may use emoji the pager fonts do not carry (spelled as
 escaped bytes, per the receipt convention). Since `STR_*` are function calls
 now, a format string like `STR_CMD_STATUS_WIFI_FMT` cannot be pasted next to a
-literal label; `build_status()` emits label and format as separate `append()`
-calls for exactly that reason.
+literal label; `commands_build_status()` emits label and format as separate
+`append()` calls for exactly that reason.
 The technical tokens in the reply (`SOCKS5`, the `esp_reset_reason()` names)
 are deliberately untranslated: they read like `esp_err_to_name()` output.
 
@@ -216,6 +243,77 @@ idle text would wipe the footer feedback before it could be read.
 The status reply reports *whether* a proxy is in use, never which one. There
 is no allow-list on commands, matching the messages: the token is the access
 control.
+
+### Inline mode
+
+`inline_mode.c` answers `@thisbot ...` typed in any chat, member or not. It is
+the same shape as `commands.c` — a policy module the pager task calls, with
+`telegram.c` owning the wire format — and it reuses `commands_build_status()`
+so there is one status report in one format however it was asked for. An empty
+query offers the status and ping cards; anything typed offers one card that
+pages the device.
+
+The load-bearing parts are all consequences of one fact: **inline mode never
+tells the bot which chat the message landed in.**
+
+- **There is no chat id, so there can be no reaction.** `setMessageReaction`
+  takes `chat_id` + `message_id` and has no inline form. The only handle a bot
+  gets on a posted inline message is `inline_message_id`, and the only thing it
+  can do with it is `editMessageText`. That is why a page that arrived inline
+  is marked by rewriting its own message (`mark_inline_page()`) while an
+  ordinary one is marked with a reaction (`mark_chat_message()`).
+- **Telegram hands back an `inline_message_id` only for a result that carries
+  an inline keyboard**, which is the entire reason the page card has a `⏳`
+  button (`telegram_inline_result_t.track`). Removing it would silently cost
+  every inline page both of its receipts. Both marks omit `reply_markup` on the
+  edit, which is what drops the button again.
+- **A `chosen_inline_result` is only a page when its `result_id` is
+  `TELEGRAM_INLINE_RESULT_PAGE`.** The status and ping cards produce the same
+  update when picked, and acting on those would page the device with the text
+  it just printed about itself.
+- **`ChosenInlineResult` carries no `date`**, unlike a `Message` — it is an
+  event, not a thing with a send time — so inline pages are stamped with
+  `time(NULL)`. It also carries no message id, so `telegram.c` hands out a
+  negative synthetic one from `s_inline_seq`; the queue, `ui.c` and `sd_log.c`
+  all key a page on `(chat_id, message_id)` and would otherwise see every
+  inline page as the same one. `ui.c` compares `inline_message_id` too, because
+  that counter restarts at every boot while restored pages do not.
+- **Only the newest inline query per user in a batch is answered**
+  (`dedupe_queries()` in `pager_task.c`). Telegram fires one per keystroke and
+  each answer here costs a full TLS handshake; the superseded ones would be
+  refused anyway.
+- **The `⏳` button is answered, not ignored.** `callback_query` is in
+  `allowed_updates` and `answer_inline()` dismisses the spinner with a toast —
+  the button lingers for as long as the device is offline, and a button that
+  spins forever when tapped reads as a broken bot.
+- **`commands_try_handle()` returns `COMMAND_NONE` for an inline page.** A
+  command that cannot be answered must not also be swallowed, so `@thisbot
+  /status` sent as a *page* is shown on the glass like any other text.
+- Enabling any of this is a BotFather matter — `/setinline` plus
+  `/setinlinefeedback` = Enabled. There is no Bot API method for either, and
+  without the second one a picked page never reaches the device at all.
+
+### Receipts
+
+Both receipts are reactions now rather than replies: `👌` on arrival, `👀` on
+the BOOT press. A bot holds exactly one reaction per message, so the second
+replaces the first, which is the progression wanted. Two things constrain this
+and are not preferences:
+
+- **`✅` is not in Telegram's reaction set.** The allowed list is 73 fixed
+  emoji and there is no green check mark in it; `👌` is the closest thing to
+  "received". `👀` is in the list.
+- **Reactions can be refused** — channels forbid them for bots, and any chat can
+  turn them off — so `mark_chat_message()` falls back to the old
+  `STR_RECEIPT_*` text reply. A refused reaction must not cost the receipt.
+
+The read receipt travels from the button task to the pager task through
+`ack_req_t`, which for an inline page has to carry the message text as well:
+`editMessageText` replaces the whole body, so the body has to survive the trip.
+It is `strdup`'d rather than a fixed field, because a field would put
+`APP_INLINE_QUERY_MAX` bytes in every slot of the ack queue for the sake of the
+few that are inline. `drain_acks()` owns the `free`, including on the
+queue-full path.
 
 ### Display and fonts
 
@@ -317,7 +415,9 @@ with one another:
   namespace on purpose: a queue-format change must not take the WiFi
   credentials with it, and vice versa.
 - **`sd_log.c` — one file per paged message on the TF card**, at
-  `/sdcard/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt`. Entirely
+  `/sdcard/TelegramPager/<chat_id>/<YYYY-MM-DD>/<HH-MM-SS>.txt` — or under
+  `inline/` for a page that has no chat, since a directory named `0` would read
+  like a bug rather than a fact about how the page arrived. Entirely
   best-effort: a missing card or a failed write is logged and ignored, never
   blocks the pager and never loses a page from the queue. The card shares SPI2
   with the LCD (only CS/MISO are its own), so the bus is initialised once in
@@ -328,8 +428,10 @@ with one another:
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  long-hold threshold, the provisioning AP name/channel and the fallback TZ.
-  Compile-time knobs only: nothing a user configures per device lives here.
+  inline-mode buffer sizes, the long-hold threshold, the provisioning AP
+  name/channel and the fallback TZ. Compile-time knobs only: nothing a user
+  configures per device lives here — and note that inline mode itself is not a
+  knob at all, it is switched on for the bot in BotFather.
 - `src/settings.h` / `settings.c` — the runtime, per-device settings (NVS `cfg`).
   Anything a user sets on the portal form belongs here, not in `app_config.h`.
 - `src/ui_strings.h` — the both-language string list (see below).
