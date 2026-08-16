@@ -73,6 +73,8 @@ image flashes to every device** and each is configured over WiFi.
    ```
    pio run -t upload -e esp32-c6-lcd-1_47
    ```
+   The PlatformIO platform is pinned in `platformio.ini` (`espressif32 @ 7.0.1`,
+   ESP-IDF v6.0.1), so the build reproduces against a known toolchain.
    Or flash from a [browser](https://pager.alexnew.ru/)
 3. On first boot the pager opens an open WiFi network named **`TelegramPager`**.
    The screen shows its address — `http://192.168.4.1` — and the two steps to
