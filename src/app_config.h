@@ -255,6 +255,10 @@
 #define APP_ANNOUNCE_ON_BOOT      1
 
 // ---- Networking ---------------------------------------------------------
+// Retries per configured network (see app_settings_t): wifi_manager walks the
+// up-to-three slots in order and gives each this many attempts before moving
+// to the next; only when every slot is exhausted does the boot fall back to
+// the provisioning portal.
 #define APP_WIFI_MAX_RETRY       10
 // Per-socket-read timeout. Must exceed APP_LONGPOLL_TIMEOUT_S so a quiet long
 // poll is not mistaken for a dead connection.

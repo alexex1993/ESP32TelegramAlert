@@ -85,32 +85,49 @@ esp_err_t wifi_manager_connect_sta(void)
 
     s_wifi_event_group = xEventGroupCreate();
 
-    wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, s->wifi_ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, s->wifi_password, sizeof(wifi_config.sta.password));
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    wifi_config.sta.pmf_cfg.capable = true;
-    wifi_config.sta.pmf_cfg.required = false;
-
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    // A prior start_ap() on this boot would have left the radio running; stop
-    // before reconfiguring. This path is not used today (AP failure reboots),
-    // but the guard keeps the function self-contained.
-    esp_wifi_stop();
-    ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "connecting to SSID '%s'...", s->wifi_ssid);
-    EventBits_t bits = xEventGroupWaitBits(
-        s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-        pdFALSE, pdFALSE, portMAX_DELAY);
+    // Walk the configured networks in order until one comes up. Each attempt
+    // reconfigures the STA interface and restarts the radio; STA_START then
+    // fires the first esp_wifi_connect() from the event handler, whose retry
+    // and fail bookkeeping is reset per attempt below (before the start, so an
+    // early event cannot carry a stale count or bits into the wait).
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        if (s->wifi_ssid[i][0] == '\0') {
+            break;   // slots are compacted at save time; empty = end of list
+        }
 
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "WiFi connected");
-        return ESP_OK;
+        wifi_config_t wifi_config = {0};
+        strlcpy((char *)wifi_config.sta.ssid, s->wifi_ssid[i], sizeof(wifi_config.sta.ssid));
+        strlcpy((char *)wifi_config.sta.password, s->wifi_password[i], sizeof(wifi_config.sta.password));
+        wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+        wifi_config.sta.pmf_cfg.capable = true;
+        wifi_config.sta.pmf_cfg.required = false;
+
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+        // A prior start (an earlier attempt in this loop, or a never-used AP
+        // start) would have left the radio running; stop before restarting.
+        esp_wifi_stop();
+
+        s_retry_count = 0;
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+        ESP_ERROR_CHECK(esp_wifi_start());
+
+        ESP_LOGI(TAG, "connecting to SSID '%s' (network %d)...", s->wifi_ssid[i], i + 1);
+        EventBits_t bits = xEventGroupWaitBits(
+            s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+            pdFALSE, pdFALSE, portMAX_DELAY);
+
+        if (bits & WIFI_CONNECTED_BIT) {
+            ESP_LOGI(TAG, "WiFi connected to '%s'", s->wifi_ssid[i]);
+            return ESP_OK;
+        }
+
+        ESP_LOGW(TAG, "SSID '%s' failed after %d retries, trying the next network",
+                 s->wifi_ssid[i], APP_WIFI_MAX_RETRY);
     }
 
-    ESP_LOGE(TAG, "WiFi connection failed after %d retries", APP_WIFI_MAX_RETRY);
+    ESP_LOGE(TAG, "no configured WiFi network connected");
     return ESP_FAIL;
 }
 

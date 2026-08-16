@@ -206,8 +206,34 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
 {
     memset(out, 0, sizeof(*out));
     form_get(body, "bot_token", out->bot_token, sizeof(out->bot_token));
-    form_get(body, "wifi_ssid", out->wifi_ssid, sizeof(out->wifi_ssid));
-    form_get(body, "wifi_password", out->wifi_password, sizeof(out->wifi_password));
+    // WiFi: up to three networks. Slot order is the try order at boot; a slot
+    // whose SSID is empty is ignored entirely (its password, if any, is
+    // dropped), and the filled slots are compacted to the front because the
+    // connect loop walks until the first empty SSID.
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "wifi_ssid_%d", i + 1);
+        form_get(body, key, out->wifi_ssid[i], sizeof(out->wifi_ssid[i]));
+        snprintf(key, sizeof(key), "wifi_password_%d", i + 1);
+        form_get(body, key, out->wifi_password[i], sizeof(out->wifi_password[i]));
+        if (out->wifi_ssid[i][0] == '\0') {
+            out->wifi_password[i][0] = '\0';
+        }
+    }
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        if (out->wifi_ssid[i][0] != '\0') {
+            continue;
+        }
+        for (int j = i + 1; j < APP_SETTINGS_WIFI_NETS_MAX; j++) {
+            if (out->wifi_ssid[j][0] != '\0') {
+                strlcpy(out->wifi_ssid[i], out->wifi_ssid[j], sizeof(out->wifi_ssid[i]));
+                strlcpy(out->wifi_password[i], out->wifi_password[j], sizeof(out->wifi_password[i]));
+                out->wifi_ssid[j][0] = '\0';
+                out->wifi_password[j][0] = '\0';
+                break;
+            }
+        }
+    }
     form_get(body, "proxy_host", out->proxy_host, sizeof(out->proxy_host));
     form_get(body, "proxy_user", out->proxy_user, sizeof(out->proxy_user));
     form_get(body, "proxy_pass", out->proxy_pass, sizeof(out->proxy_pass));
@@ -235,7 +261,7 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
         snprintf(errbuf, errbuf_sz, "Bot token looks wrong (expected digits:letters).");
         return false;
     }
-    if (out->wifi_ssid[0] == '\0') {
+    if (out->wifi_ssid[0][0] == '\0') {
         snprintf(errbuf, errbuf_sz, "WiFi network name is required.");
         return false;
     }
@@ -325,10 +351,14 @@ static void html_escape(char *dst, size_t dst_size, const char *src)
 // frees. `err` is an optional error banner; `s` provides the pre-fill values.
 static char *build_page(const char *err, const app_settings_t *s)
 {
-    char e_tok[200], e_ssid[80], e_pass[80], e_ph[160], e_pu[120], e_pp[120];
+    char e_tok[200], e_ph[160], e_pu[120], e_pp[120];
+    char e_ssid[APP_SETTINGS_WIFI_NETS_MAX][80];
+    char e_pass[APP_SETTINGS_WIFI_NETS_MAX][80];
     ESC(e_tok, s->bot_token);
-    ESC(e_ssid, s->wifi_ssid);
-    ESC(e_pass, s->wifi_password);
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        ESC(e_ssid[i], s->wifi_ssid[i]);
+        ESC(e_pass[i], s->wifi_password[i]);
+    }
     ESC(e_ph, s->proxy_host);
     ESC(e_pu, s->proxy_user);
     ESC(e_pp, s->proxy_pass);
@@ -365,10 +395,20 @@ static char *build_page(const char *err, const app_settings_t *s)
     buf_printf(&b, "<label>Bot token</label>"
                    "<input name=bot_token value=\"%s\" placeholder=\"123456:ABC-DEF...\">", e_tok);
 
-    buf_printf(&b, "<label>WiFi network name (SSID)</label>"
-                   "<input name=wifi_ssid value=\"%s\">", e_ssid);
+    buf_printf(&b, "<label>WiFi network 1 (primary)</label>"
+                   "<input name=wifi_ssid_1 value=\"%s\">", e_ssid[0]);
     buf_printf(&b, "<label>WiFi password</label>"
-                   "<input name=wifi_password value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass);
+                   "<input name=wifi_password_1 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[0]);
+    buf_printf(&b, "<label>WiFi network 2 (optional)</label>"
+                   "<input name=wifi_ssid_2 value=\"%s\">", e_ssid[1]);
+    buf_printf(&b, "<label>WiFi password</label>"
+                   "<input name=wifi_password_2 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[1]);
+    buf_printf(&b, "<label>WiFi network 3 (optional)</label>"
+                   "<input name=wifi_ssid_3 value=\"%s\">", e_ssid[2]);
+    buf_printf(&b, "<label>WiFi password</label>"
+                   "<input name=wifi_password_3 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[2]);
+    buf_put(&b, "<p class=muted>If a network is unreachable, the pager tries the "
+                "next one on this list.</p>");
 
     buf_printf(&b, "<div class=row2><div><label>Timezone (UTC offset, hours)</label>"
                    "<input name=tz_offset type=number value=\"%d\" min=-12 max=14></div>", (int)s->tz_offset_hours);
@@ -430,8 +470,9 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     // The form is small, but cap what we accept at a sane bound and read it in
     // one shot (httpd_req_recv loops internally on partial reads up to the
     // requested length when the body fits; large bodies are truncated, which
-    // then fails validation and re-renders the form).
-    static char body[2048];
+    // then fails validation and re-renders the form). 3072 leaves headroom for
+    // three fully percent-encoded SSID/password pairs plus the proxy fields.
+    static char body[3072];
     int total = (int)req->content_len;
     if (total < 0) {
         total = 0;

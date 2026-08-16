@@ -128,7 +128,16 @@ that writes it. Together they replaced the old `.env` → `tools/gen_secrets.py`
 → `src/secrets.h` build step, so **one image flashes to every device** and
 everything that used to be a `SECRET_*` macro (`bot_token`, `wifi_ssid`,
 `wifi_password`, `tz_offset_hours`, `ui_language`, `proxy_*`) is now a field of
-`app_settings_t`.
+`app_settings_t`. The WiFi pair became **up to three candidate networks**
+(`wifi_ssid[N]` / `wifi_password[N]`, NVS keys `wifi_ssid0`…`wifi_pass2`):
+`wifi_manager_connect_sta()` walks the slots in order and gives each
+`APP_WIFI_MAX_RETRY` attempts before moving on — a device whose primary
+network is down boots on a fallback instead of landing in the portal. Slots
+1/2 are optional (loaded without marking the set incomplete); the portal
+compacts the filled slots to the front before saving, so the first empty SSID
+marks the end of the list. The pre-multi-network single-pair keys
+(`wifi_ssid`/`wifi_pass`) are adopted into slot 0 when `wifi_ssid0` is absent
+and erased on the next save.
 
 Settings are loaded **once** at boot into a file-static copy and read afterwards
 through `settings_get()`, which returns a `const` pointer — no NVS traffic on
@@ -151,7 +160,8 @@ pointer but must not expect a value to change without a restart.
   `ui_language` (a garbage value would index past the string tables) and
   `tz_offset_hours` back to `APP_DEFAULT_TZ_OFFSET_HOURS`.
 - **A failed STA connect does not boot-loop.** `main.c` sets `force_ap` and
-  reboots into the portal instead — a pager taken to a new flat is recoverable
+  reboots into the portal instead — but only after `wifi_manager` has tried
+  every configured network — so a pager taken to a new flat is recoverable
   without a serial cable.
 
 The portal itself (`provision_start()`) brings up an **open** SoftAP, paints
@@ -173,7 +183,9 @@ incidental:
   (token must contain `:`, SSID required, TZ in −12…14, SOCKS5 needs host+port,
   RFC 1929 user and password set together or not at all). The portal must not
   be a way to store a half-config the runtime would choke on; on failure it
-  re-renders the form with a banner and a 400.
+  re-renders the form with a banner and a 400. The three WiFi slots are
+  compacted here (empty SSID drops its password too), so the runtime's
+  walk-until-empty-slot loop can never skip a configured network.
 - The page is built into one `realloc`-grown buffer and every pre-filled value
   goes through `html_escape()` — a token or SSID with a quote in it must not
   break out of the attribute.
