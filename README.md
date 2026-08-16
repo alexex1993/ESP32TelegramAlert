@@ -1,9 +1,5 @@
 # ESP32TelegramAlert
 
-<img width="1422" height="820" alt="image" src="https://github.com/user-attachments/assets/97c305d6-6cfa-4c77-a519-999c6795060e" />
-
-[YOUTUBE DEMO](https://www.youtube.com/shorts/OFUGBKv261c)
-
 A Telegram pager for the **Waveshare ESP32-C6-LCD-1.47**: a bot forwards
 messages to the device, they queue up on the screen in landscape, and the
 board's BOOT key sends a "read" receipt back to the chat.
@@ -11,6 +7,17 @@ board's BOOT key sends a "read" receipt back to the chat.
 This is a ground-up ESP-IDF rewrite of the Arduino sketch at
 [alexex1993/TelegramPagerESP32](https://github.com/alexex1993/TelegramPagerESP32),
 which drove an SSD1306 OLED via the FastBot library.
+
+<img width="711" height="410" alt="image" src="https://github.com/user-attachments/assets/97c305d6-6cfa-4c77-a519-999c6795060e" />
+
+## Demonstration
+[YOUTUBE DEMO #1](https://www.youtube.com/shorts/OFUGBKv261c)
+
+[YOUTUBE DEMO #2](https://www.youtube.com/shorts/CHrGNBdmHEU)
+
+## Online Flasher
+
+You can flash the latest firmware on this [website](https://pager.alexnew.ru/).
 
 ## Features
 
@@ -48,6 +55,49 @@ which drove an SSD1306 OLED via the FastBot library.
   Telegram connection.
 - **Captive-portal WiFi provisioning** — flash one image to every device, then
   configure each over WiFi on first boot. No `.env`, no per-device build.
+
+
+## Setup
+
+Settings live in the device's NVS, not in a build-time file, so **one firmware
+image flashes to every device** and each is configured over WiFi.
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
+2. Build and flash:
+   ```
+   pio run -t upload -e esp32-c6-lcd-1_47
+   ```
+   Or flash from a [browser](https://pager.alexnew.ru/)
+3. On first boot the pager opens an open WiFi network named **`TelegramPager`**.
+   The screen shows its address — `http://192.168.4.1` — and the two steps to
+   follow. Join that WiFi from a phone and the captive-portal sheet pops up
+   automatically (or open `http://192.168.4.1` by hand).
+4. Fill in the form and press **Save & reboot**. The pager stores the settings,
+   restarts, joins your WiFi and starts paging.
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| Bot token | yes | as @BotFather gives it, `123456:AA…` |
+| WiFi name (SSID) | yes | 2.4 GHz — the ESP32-C6 has no 5 GHz radio |
+| WiFi password | no | leave empty for an open network |
+| Timezone | yes | UTC offset in hours, −12…14; drives the `[HH:MM]` stamp, the card's folder names and `/status` |
+| Language | yes | English or Русский, for what the device itself writes |
+| Proxy | no | `None`, or `SOCKS5` + host, port and optional user/password |
+
+The form is validated before anything is stored, so a half-filled proxy or a
+malformed token comes back with a message instead of bricking the next boot.
+
+**If the captive-portal sheet does not pop up** (some Android builds, or a phone
+that keeps mobile data on), just open `http://192.168.4.1` in a browser while
+joined to `TelegramPager` — the screen shows that address for exactly this case.
+The setup network is deliberately open: the secret is what you type *into* the
+form, and a WiFi password here would have to be displayed on the pager's screen
+before you could reach the page anyway.
+
+There is no chat id to configure: anyone who writes to the bot is paged, so the
+token is what keeps the pager yours — keep it private, and consider turning the
+bot's group access off in @BotFather so it cannot be added to strangers' groups.
+
 
 ## Chat commands
 
@@ -176,86 +226,6 @@ Nothing to wire: the display and the button are both on the board.
 Pins live in `src/app_config.h`. If the image comes out upside down, flip
 `BOARD_LCD_MIRROR_X` / `BOARD_LCD_MIRROR_Y` there.
 
-## Setup
-
-Settings live in the device's NVS, not in a build-time file, so **one firmware
-image flashes to every device** and each is configured over WiFi.
-
-1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
-2. Build and flash:
-   ```
-   pio run -t upload -e esp32-c6-lcd-1_47
-   ```
-   Or flash from a browser, with no toolchain at all — see
-   [Flashing from the browser](#flashing-from-the-browser).
-3. On first boot the pager opens an open WiFi network named **`TelegramPager`**.
-   The screen shows its address — `http://192.168.4.1` — and the two steps to
-   follow. Join that WiFi from a phone and the captive-portal sheet pops up
-   automatically (or open `http://192.168.4.1` by hand).
-4. Fill in the form and press **Save & reboot**. The pager stores the settings,
-   restarts, joins your WiFi and starts paging.
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| Bot token | yes | as @BotFather gives it, `123456:AA…` |
-| WiFi name (SSID) | yes | 2.4 GHz — the ESP32-C6 has no 5 GHz radio |
-| WiFi password | no | leave empty for an open network |
-| Timezone | yes | UTC offset in hours, −12…14; drives the `[HH:MM]` stamp, the card's folder names and `/status` |
-| Language | yes | English or Русский, for what the device itself writes |
-| Proxy | no | `None`, or `SOCKS5` + host, port and optional user/password |
-
-The form is validated before anything is stored, so a half-filled proxy or a
-malformed token comes back with a message instead of bricking the next boot.
-
-**If the captive-portal sheet does not pop up** (some Android builds, or a phone
-that keeps mobile data on), just open `http://192.168.4.1` in a browser while
-joined to `TelegramPager` — the screen shows that address for exactly this case.
-The setup network is deliberately open: the secret is what you type *into* the
-form, and a WiFi password here would have to be displayed on the pager's screen
-before you could reach the page anyway.
-
-There is no chat id to configure: anyone who writes to the bot is paged, so the
-token is what keeps the pager yours — keep it private, and consider turning the
-bot's group access off in @BotFather so it cannot be added to strangers' groups.
-
-### Flashing from the browser
-
-`web/index.html` plus `tools/build_flasher.sh` produce a static page that flashes
-a board over WebSerial — [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
-driving the ESP32-C6's built-in USB-Serial-JTAG. Nothing is uploaded anywhere:
-the `.bin` files are served as static assets and written to the board by the
-browser, so the site is a plain folder of files and needs no backend.
-
-```
-bash tools/build_flasher.sh          # -> dist/
-python3 -m http.server -d dist 8000  # WebSerial treats http://localhost as secure
-```
-
-`dist/` is what gets published. The build reads all three flash offsets back out
-of the artifacts it just produced — the bootloader and table offsets from
-`sdkconfig`, the app offset by decoding `partitions.bin` — rather than hardcoding
-them, because this project's oversized `nvs` puts the app at `0x40000` instead of
-the stock `0x10000`, and a stale offset in a published manifest would brick every
-board that visits the page.
-
-The manifest lists the three images as **separate parts rather than one merged
-image**: merging would pad the gap between the partition table and the app with
-`0xff` and so wipe NVS on every update, taking the bot token, the WiFi
-credentials and the unread queue with it. Updating an already-configured pager
-therefore means leaving *Erase device* unchecked in the flash dialog.
-
-`.github/workflows/flasher.yml` runs the same script on every `v*` tag and
-deploys `dist/` to Cloudflare Pages (free tier is plenty — it is static hosting;
-no Workers involved). It needs two repository secrets, `CLOUDFLARE_API_TOKEN`
-(with *Cloudflare Pages: Edit*) and `CLOUDFLARE_ACCOUNT_ID`, and a Pages project
-whose name matches `CF_PAGES_PROJECT` in the workflow. A manual
-`workflow_dispatch` run builds and uploads `dist/` as an artifact without
-touching the live site.
-
-Browser support is the one real limitation: WebSerial exists in Chrome, Edge and
-Opera (desktop, plus Chrome on Android) and not in Firefox or Safari. The page
-says so itself when it detects an unsupported browser.
-
 ### Re-provisioning
 
 To change the WiFi (or any setting) later: with the pager running, **hold the
@@ -275,7 +245,7 @@ The settings module is `src/settings.c` (NVS namespace `cfg`); the portal is
 
 ### Language
 
-Language is chosen on the setup form (English / Русский) and stored at runtime,
+Language is chosen on the setup form (English/Russian) and stored at runtime,
 so the same image can be either. It affects only what the device itself writes —
 the status line, the "no new messages" placeholder, and the "read"/"delivered"
 receipts it sends back to the chat. Message text and sender names always arrive
@@ -286,7 +256,7 @@ The strings are in `src/ui_strings.h` as an X-macro list (`UI_STRING_LIST`) that
 generates both language tables and the id enum in lockstep, and resolved at
 runtime by `ui_str()` in `src/ui_strings.c`.
 
-### Message log on the TF card
+### Message log on the Micro SD card
 
 Insert a FAT-formatted microSD and every paged message is also written to it,
 one file per message:
