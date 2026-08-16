@@ -1,6 +1,6 @@
 # ESP32TelegramAlert
 
-<img width="1362" height="788" alt="image" src="https://github.com/user-attachments/assets/5c701e10-aea1-4739-8836-ceeec23b74d7" />
+<img width="1422" height="820" alt="image" src="https://github.com/user-attachments/assets/97c305d6-6cfa-4c77-a519-999c6795060e" />
 
 [YOUTUBE DEMO](https://www.youtube.com/shorts/OFUGBKv261c)
 
