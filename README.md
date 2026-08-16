@@ -51,6 +51,12 @@ You can flash the latest firmware on this [website](https://pager.alexnew.ru/).
   without a serial cable; see below.
 - **`/pager <text>`** — pages the device with `<text>`, which is how to reach it
   from a group without turning the bot's privacy mode off.
+- **`/last N`** — reads the newest unread pages back into the chat, so what is
+  waiting on the pager can be checked from the phone. It only reads: nothing is
+  acknowledged and nothing leaves the queue.
+- **It says hello when it comes back** — after a power cut the pager tells
+  everyone who has written to it that it is online again, so a silent pager is
+  never mistaken for an idle one.
 - Optional **SOCKS5 proxy**, with username/password authentication, for the
   Telegram connection.
 - **Captive-portal WiFi provisioning** — flash one image to every device, then
@@ -107,7 +113,8 @@ they never reach the screen, take a queue slot or wait for a button press.
 | Command | Answer |
 | --- | --- |
 | `/ping` | `🏓 pong` — the poll loop is alive and the bot token still works. |
-| `/status` | Firmware revision and build date, uptime, SSID / RSSI / channel, IP, whether a proxy is in use, queue depth (and messages dropped by overflow), backlight state, free heap, the reason for the last reset, and the device clock. |
+| `/status` | Firmware revision and build date, uptime, SSID / RSSI / channel, IP, whether a proxy is in use, queue depth (and messages dropped by overflow), how many chats are on the announcement list, backlight state, free heap, the reason for the last reset, and the device clock. |
+| `/last N` | The N newest unread pages, read back into the chat. See below. |
 | `/pager <text>` | Not an answer at all — `<text>` is paged. See below. |
 
 ```
@@ -118,14 +125,15 @@ Uptime: 2d 03:14:07
 WiFi: my-network, -58 dBm, ch 6
 IP: 192.168.1.42
 Proxy: SOCKS5
-Queue: 3/8
+Queue: 3/32
+Contacts: 4/16
 Screen: on
 Heap: 84 KB free, 61 KB min
 Last reset: POWERON
 Clock: 2026-08-10 21:20 UTC+3
 ```
 
-Both work as `/status@yourbot` too, which is the form Telegram sends in groups.
+They all work as `/status@yourbot` too, which is the form Telegram sends in groups.
 Anything else starting with `/` is an ordinary message and gets paged — someone
 typing `/dev/ttyUSB0` is sending a page, not driving the pager. The answers are
 in whichever language the device was configured for at setup time.
@@ -134,6 +142,39 @@ There is no allow-list here, for the same reason there is none on messages: the
 bot token is the access control, and whoever can page the device can also ask
 how it is doing. The proxy endpoint is deliberately *not* in the reply — only
 whether one is in use.
+
+### `/last N` — reading the queue from the chat
+
+```
+/last 3
+```
+
+```
+📜 Last 3 of 7 unread
+
+[08-16 09:12] Anna:
+bins go out tonight
+
+[08-16 10:40] Kitchen crew:
+lunch at one?
+
+[08-16 11:05] Anna:
+got the keys, no rush
+```
+
+The N newest unread pages, oldest of them first, so the listing reads downwards
+the way the chat around it does and the newest page ends up nearest your reply.
+A bare `/last` gives three; the cap is **8** per reply, and asking for more is
+clamped rather than refused — the title says how many of how many came back.
+Anything that is not a plain number (`/last all`) gets the form back instead of a
+guess.
+
+**It reads and nothing more.** No page is popped, no receipt goes out and the
+screen is not touched — the pages stay unread and still have to be cleared with
+the BOOT key. Only that key means "I have seen this", and a listing must not
+clear a page off the glass of a pager sitting in someone else's pocket. Long
+pages are cut at ~320 bytes with a `…` so the whole listing fits in the single
+message Telegram allows.
 
 ### `/pager <text>` — paging from a group
 
@@ -156,6 +197,24 @@ Writing to the bot in a private chat needs none of this — just send the text.
 `/pager` on its own, with nothing after it, answers with a reminder of the form
 rather than paging an empty page. `/pager@yourbot text` works too, which is how
 Telegram rewrites commands in groups.
+
+### Boot announcement
+
+The pager remembers every chat that has written to it — pages and commands
+alike — and once the WiFi is up after a restart it sends each of them a single
+line:
+
+```
+📟 Pager is online
+```
+
+A pager that lost power otherwise leaves the people paging it unable to tell
+"nobody has written" from "it has been off since Tuesday". The list holds 16
+chats, keyed on the chat rather than the person (a group is one entry and is
+told in the group), survives reboots in flash, and drops its least recently seen
+entry when full. `/status` reports how many are on it. Pages sent through inline
+mode belong to no chat, so they add nobody. Set `APP_ANNOUNCE_ON_BOOT` to `0` in
+`src/app_config.h` to keep the list but stay quiet.
 
 ## Inline mode
 
