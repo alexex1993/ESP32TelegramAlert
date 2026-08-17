@@ -18,6 +18,7 @@
 #include "https_client.h"
 #include "inline_mode.h"
 #include "msg_queue.h"
+#include "msg_store.h"
 #include "net_conn.h"
 #include "sd_log.h"
 #include "screen.h"
@@ -48,6 +49,9 @@ typedef struct {
 
 static QueueHandle_t s_ack_queue;
 static int64_t s_offset;
+// What of s_offset is on flash. The two only differ between a poll that
+// brought something back and the end of the lap that handled it.
+static int64_t s_saved_offset;
 
 // Cuts a long poll short when a receipt is waiting. Without this the user
 // would press the button and then watch nothing happen until the poll's
@@ -406,6 +410,17 @@ static void pager_task(void *arg)
             // it.
             idle_status();
         }
+
+        // Last thing in the lap, on purpose. Every message in this batch is on
+        // the card, in the queue and persisted there by now, so writing the
+        // offset here can only ever acknowledge a page that is already safe --
+        // and a crash anywhere above replays the batch instead of losing it.
+        // That is why the offset is written here rather than where
+        // telegram_poll() advances it.
+        if (s_offset != s_saved_offset) {
+            msg_store_save_offset(s_offset);
+            s_saved_offset = s_offset;
+        }
     }
 }
 
@@ -413,6 +428,14 @@ void pager_start(void)
 {
     s_ack_queue = xQueueCreate(APP_MSG_QUEUE_LEN, sizeof(ack_req_t));
     configASSERT(s_ack_queue);
+
+    // Resume where the last boot left off. Without this a reboot re-downloads
+    // the batch that was in flight and pushes a second copy of every page it
+    // had already queued -- the queue grows by a message on every restart,
+    // which is what made a single crash look like a device stuck in a loop.
+    // msg_store_init() has already run, from msg_queue_init() in app_main.
+    s_offset = msg_store_load_offset();
+    s_saved_offset = s_offset;
 
     screen_init();
     // on_long: a 5 s BOOT hold sets the force-ap flag and reboots into the

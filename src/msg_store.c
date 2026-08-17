@@ -12,6 +12,7 @@ static const char *TAG = "msgstore";
 
 static const char *NVS_NAMESPACE = "pager";
 static const char *KEY_META = "meta";
+static const char *KEY_OFFSET = "offset";
 
 // Bumped whenever the on-flash layout of meta or a slot changes. A mismatch
 // makes load() report empty so the caller wipes stale slot blobs and starts
@@ -136,6 +137,34 @@ void msg_store_save_meta(size_t head, size_t count, size_t dropped)
     // state to flash so a reboot immediately after cannot roll back to the
     // previous queue. The cost is one extra page write per push/pop -- a
     // few ms, dwarfed by the TLS round-trip that accompanies every message.
+    nvs_commit(s_handle);
+}
+
+int64_t msg_store_load_offset(void)
+{
+    int64_t offset = 0;
+    esp_err_t err = nvs_get_i64(s_handle, KEY_OFFSET, &offset);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return 0;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "offset read failed: %s -- polling from the start",
+                 esp_err_to_name(err));
+        return 0;
+    }
+    ESP_LOGI(TAG, "resuming poll at update offset %lld", (long long)offset);
+    return offset;
+}
+
+void msg_store_save_offset(int64_t offset)
+{
+    esp_err_t err = nvs_set_i64(s_handle, KEY_OFFSET, offset);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "save offset failed: %s", esp_err_to_name(err));
+        return;
+    }
+    // Committed like the meta above, and for the same reason: a reboot right
+    // after must not roll back to an offset that replays pages already queued.
     nvs_commit(s_handle);
 }
 
