@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "msg_queue.h"
 
@@ -34,5 +35,25 @@ void msg_store_save_slot(size_t idx, const pager_msg_t *msg);
 void msg_store_save_meta(size_t head, size_t count, size_t dropped);
 
 // Erases meta and every slot key in [0, capacity). Used on a load failure
-// or after a config change so an old queue cannot resurrect itself.
+// or after a config change so an old queue cannot resurrect itself. The poll
+// offset below is deliberately left alone: it is a fact about what Telegram
+// has already handed over, not part of the queue's layout.
 void msg_store_clear(size_t capacity);
+
+// The getUpdates offset, in the same namespace as the queue because it
+// answers the same question from the other side: the queue is what this
+// device still has to show, the offset is what it has already taken delivery
+// of. Telegram keeps an update until a poll acknowledges it by asking for the
+// one after it, so an offset held only in RAM means every reboot re-downloads
+// the batch it was in the middle of -- and pushes a second copy of each page
+// that was already queued and persisted. That is what turned one crash into a
+// reboot loop with a queue growing by a message a lap.
+//
+// Zero on first boot (or if the read fails), which is getUpdates' own "give
+// me everything you are still holding".
+int64_t msg_store_load_offset(void);
+
+// Persisted only after the batch it covers is fully handled, so a crash
+// mid-batch replays that batch rather than losing it. Writes nothing when the
+// offset has not moved, which is every quiet long poll.
+void msg_store_save_offset(int64_t offset);

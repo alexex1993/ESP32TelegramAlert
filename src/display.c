@@ -17,6 +17,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "app_config.h"
@@ -33,6 +34,30 @@ static const char *TAG = "display";
 #define LVGL_TASK_PRIORITY     2
 
 static _lock_t s_lvgl_lock;
+
+// Guards SPI2 against being used by the panel and the TF card at the same
+// time; see the header for why the SPI driver's own bus lock is not enough.
+// A binary semaphore rather than a mutex because the flush path gives it back
+// from the transfer-done interrupt, and a mutex cannot be released from an ISR
+// (nor by a task other than the one that took it).
+static SemaphoreHandle_t s_spi_bus_sem;
+
+void display_spi_bus_lock(void)
+{
+    // Callable before display_init() has run, so a caller does not have to
+    // know the boot order: with no panel on the bus yet there is nothing to
+    // serialise against.
+    if (s_spi_bus_sem) {
+        xSemaphoreTake(s_spi_bus_sem, portMAX_DELAY);
+    }
+}
+
+void display_spi_bus_unlock(void)
+{
+    if (s_spi_bus_sem) {
+        xSemaphoreGive(s_spi_bus_sem);
+    }
+}
 
 // Backlight is dimmed through the LEDC peripheral so the eye sees a smooth
 // ramp rather than a hard on/off. The same pin (BOARD_LCD_PIN_BL) is routed
@@ -80,12 +105,18 @@ void display_lvgl_unlock(void)
     _lock_release(&s_lvgl_lock);
 }
 
+// Runs in the SPI transfer-done interrupt: the pixels are on the glass, so the
+// bus is free for the TF card again and LVGL may hand over the next buffer.
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
                                      esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
     lv_display_t *disp = (lv_display_t *)user_ctx;
+    BaseType_t higher_prio_woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_spi_bus_sem, &higher_prio_woken);
     lv_display_flush_ready(disp);
-    return false;
+    // esp_lcd yields on a true return, which is what wakes a task released by
+    // the give above without waiting for the next tick.
+    return higher_prio_woken == pdTRUE;
 }
 
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -108,7 +139,21 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
                  offsety2, ((uint16_t *)px_map)[0]);
     }
 #endif
-    esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
+    // Held until the transfer-done interrupt gives it back (see
+    // notify_lvgl_flush_ready): esp_lcd queues the pixel transfer and returns
+    // long before the DMA has finished, so the guard has to outlive this call
+    // or the TF card can take a bus that is still shifting out a frame.
+    display_spi_bus_lock();
+    esp_err_t err = esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1,
+                                              offsety2 + 1, px_map);
+    if (err != ESP_OK) {
+        // Nothing was queued, so no interrupt is coming to release the guard
+        // or to report the flush. Do both here: a dropped frame is a smudge,
+        // a stalled LVGL and a permanently locked bus are the end of the UI.
+        ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
+        display_spi_bus_unlock();
+        lv_display_flush_ready(disp);
+    }
 }
 
 #if BOARD_LCD_SELFTEST
@@ -160,6 +205,13 @@ static void lvgl_port_task(void *arg)
 
 lv_display_t *display_init(void)
 {
+    // Created before the bus exists, so nothing can reach the card through
+    // sd_log.c while the guard is still NULL. Starts free: the first flush
+    // takes it, the transfer-done interrupt gives it back.
+    s_spi_bus_sem = xSemaphoreCreateBinary();
+    assert(s_spi_bus_sem);
+    xSemaphoreGive(s_spi_bus_sem);
+
     ESP_LOGI(TAG, "configure backlight LEDC");
     // The board's BL pin is active high (BOARD_LCD_BL_ON_LEVEL == 1); route it
     // through LEDC for PWM dimming. Starting at duty 0 keeps the glass dark

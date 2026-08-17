@@ -549,6 +549,18 @@ with one another:
   that index. `msg_store_load()` wipes everything on a magic/version/size
   mismatch rather than trusting a blob from another firmware. It owns every
   `nvs_*` call so `msg_queue.c` stays about the ring and its mutex.
+  It also holds the **getUpdates offset**, under `offset` in the same
+  namespace: the queue is what the device still has to show, the offset is
+  what it has already taken delivery of, and the two only make sense together.
+  Telegram holds an update until a later poll asks for the one after it, so an
+  offset kept only in RAM makes every reboot re-download the batch it died in
+  and push a *second* copy of pages that were already queued and persisted —
+  the queue then grows by a message on every restart. `pager_task` writes it as
+  the **last** thing in a lap, after the batch is on the card, in the queue and
+  in flash: a crash above that line replays the batch, which is the right way
+  round, and it is why the write does not live where `telegram_poll()` advances
+  the value. It is not touched by `msg_store_clear()` — a queue-layout change
+  says nothing about what Telegram has already handed over.
 - **`settings.c` — device settings, in NVS namespace `cfg`.** Separate
   namespace on purpose: a queue-format change must not take the WiFi
   credentials with it, and vice versa.
@@ -563,8 +575,49 @@ with one another:
   blocks the pager and never loses a page from the queue. The card shares SPI2
   with the LCD (only CS/MISO are its own), so the bus is initialised once in
   `display_init()` — which is why MISO is in the bus config even though the
-  write-only panel never reads. Dates on the card use the same runtime TZ
-  offset the screen does, so the tree matches the `[HH:MM]` on the glass.
+  write-only panel never reads, and why every card access is bracketed by
+  `display_spi_bus_lock()` (see "Sharing SPI2 with the panel" below). Dates on
+  the card use the same runtime TZ offset the screen does, so the tree matches
+  the `[HH:MM]` on the glass.
+
+#### Sharing SPI2 with the panel
+
+The SPI driver's own bus lock is **not** enough to keep the card and the panel
+off each other, and this is the bug behind the reboot loop that showed up once
+a dozen pages were queued: a frame flush *queues* its pixel transfer and then
+releases the bus while the DMA is still shifting bytes out
+(`panel_io_spi_tx_color()` in esp_lcd), and `spi_bus_lock`'s `schedule_core()`
+hands that freed bus to the next waiting device after checking only whether
+*that* device has background work — not whether someone else's transfer is
+still running. The SD card walking in there sets up a transaction on a busy
+peripheral, `spi_hal_setup_trans()` asserts, and the device reboots. Silent
+assertions (see `sdkconfig.defaults`) mean it prints nothing but `abort() was
+called at PC …`.
+
+So `display.c` owns a second guard, `display_spi_bus_lock()` /
+`display_spi_bus_unlock()`, and it is what actually serialises the two:
+
+- The flush path takes it in `lvgl_flush_cb()` and gives it back **from the
+  transfer-done interrupt** (`notify_lvgl_flush_ready`), not when
+  `esp_lcd_panel_draw_bitmap()` returns — the whole point is to cover the DMA
+  that outlives that call. That is why it is a binary semaphore and not a
+  mutex: a mutex cannot be released from an ISR or by another task. A failed
+  `draw_bitmap` returns it by hand, since no interrupt is coming for a
+  transfer that was never queued and a stuck guard would end the UI.
+- `sd_log.c` holds it across a whole card operation — the mount, the log root,
+  and everything from the first `mkdir_p()` to the `fclose()` — rather than per
+  call, so a frame can never land in the middle of a directory creation.
+- Nothing under the guard may take the LVGL lock. The LVGL task waits for the
+  guard *while holding* that lock, so the reverse order deadlocks the pair.
+- The backlight (LEDC) and the RGB LED (RMT) are outside it; neither touches
+  SPI2. The panel bring-up in `display_init()` is too: it runs before the LVGL
+  task and long before anything can reach the card.
+
+Why it took a full queue to show: the screen is only busy when it has something
+to animate. A page long enough to overflow the body starts an *infinite* scroll
+loop (see "Display and fonts"), so the panel is flushing continuously — and a
+burst of messages from several chats is also a burst of SD writes, each one
+creating a new `<chat_id>/` directory. That is the collision.
 
 ### Config surfaces
 

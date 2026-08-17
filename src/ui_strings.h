@@ -42,7 +42,8 @@
     X(CMD_PONG,           "\xF0\x9F\x8F\x93 pong", "\xF0\x9F\x8F\x93 pong") /* "🏓 pong" */ \
     X(CMD_STATUS_TITLE,   "\xF0\x9F\x93\x9F Pager status", "\xF0\x9F\x93\x9F \xD0\xA1\xD0\xBE\xD1\x81\xD1\x82\xD0\xBE\xD1\x8F\xD0\xBD\xD0\xB8\xD0\xB5 \xD0\xBF\xD0\xB5\xD0\xB9\xD0\xB4\xD0\xB6\xD0\xB5\xD1\x80\xD0\xB0") /* "📟 Pager status" / "📟 Состояние пейджера" */ \
     X(CMD_STATUS_FIRMWARE,"Firmware",                        "Прошивка") \
-    X(CMD_STATUS_BUILT,   "Built",                            "Собрана") \
+    X(CMD_STATUS_TEMP,    "Chip temperature",                 "Температура чипа") \
+    X(CMD_STATUS_TEMP_UNAVAIL,"unavailable",                  "недоступна") \
     X(CMD_STATUS_UPTIME,  "Uptime",                           "Аптайм") \
     X(CMD_STATUS_WIFI,    "WiFi",                             "WiFi") \
     X(CMD_STATUS_WIFI_FMT,"%s, %d dBm, ch %u",                "%s, %d дБм, канал %u") \
@@ -137,7 +138,8 @@ void ui_set_language(int lang_id);
 #define STR_CMD_PONG                ui_str(STR_ID_CMD_PONG)
 #define STR_CMD_STATUS_TITLE        ui_str(STR_ID_CMD_STATUS_TITLE)
 #define STR_CMD_STATUS_FIRMWARE     ui_str(STR_ID_CMD_STATUS_FIRMWARE)
-#define STR_CMD_STATUS_BUILT        ui_str(STR_ID_CMD_STATUS_BUILT)
+#define STR_CMD_STATUS_TEMP         ui_str(STR_ID_CMD_STATUS_TEMP)
+#define STR_CMD_STATUS_TEMP_UNAVAIL ui_str(STR_ID_CMD_STATUS_TEMP_UNAVAIL)
 #define STR_CMD_STATUS_UPTIME       ui_str(STR_ID_CMD_STATUS_UPTIME)
 #define STR_CMD_STATUS_WIFI         ui_str(STR_ID_CMD_STATUS_WIFI)
 #define STR_CMD_STATUS_WIFI_FMT     ui_str(STR_ID_CMD_STATUS_WIFI_FMT)

@@ -15,6 +15,7 @@
 #include "sdmmc_cmd.h"
 
 #include "app_config.h"
+#include "display.h"
 #include "settings.h"
 
 static const char *TAG = "sdlog";
@@ -46,8 +47,14 @@ bool sd_log_init(void)
         .allocation_unit_size = 16 * 1024,
     };
 
+    // Probing the card is dozens of SPI transactions, and the LVGL task has
+    // been painting the screen over the same bus since display_init(). Every
+    // card access on this bus runs under the panel's guard; the mount is no
+    // exception -- see display_spi_bus_lock().
+    display_spi_bus_lock();
     esp_err_t err = esp_vfs_fat_sdspi_mount(BOARD_SD_MOUNT_POINT, &host, &slot,
                                              &mount_cfg, &s_card);
+    display_spi_bus_unlock();
     if (err != ESP_OK) {
         // No card inserted, or wrong format: not fatal. The pager pages and
         // receipts fine without the log; flag it and move on.
@@ -64,7 +71,9 @@ bool sd_log_init(void)
 
     // Create the log root once; ignore "already exists". Per-chat and per-day
     // directories are created lazily by sd_log_message.
+    display_spi_bus_lock();
     mkdir(SD_LOG_ROOT, 0777);
+    display_spi_bus_unlock();
 
     return true;
 }
@@ -118,6 +127,13 @@ void sd_log_message(const pager_msg_t *msg)
     snprintf(day_dir, sizeof(day_dir), "%s/%04d-%02d-%02d", chat_dir,
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
 
+    // From here on every line talks to the card, so the whole write is one
+    // held stretch of the shared bus rather than a dozen: the panel's frame
+    // flushes wait for it, and none of them can interleave into the middle of
+    // a directory creation or a file. Nothing below may touch LVGL -- the
+    // deadlock order is documented at display_spi_bus_lock().
+    display_spi_bus_lock();
+
     // Build the directories lazily: a new chat or a new day must not lose its
     // first message to a missing parent.
     mkdir_p(chat_dir);
@@ -139,6 +155,7 @@ void sd_log_message(const pager_msg_t *msg)
     FILE *f = fopen(path, "wb");
     if (f == NULL) {
         ESP_LOGW(TAG, "open \"%s\" failed (errno %d)", path, errno);
+        display_spi_bus_unlock();
         return;
     }
 
@@ -161,4 +178,6 @@ void sd_log_message(const pager_msg_t *msg)
     if (fclose(f) != 0) {
         ESP_LOGW(TAG, "close \"%s\" failed (errno %d)", path, errno);
     }
+
+    display_spi_bus_unlock();
 }
