@@ -304,6 +304,25 @@ The status reply reports *whether* a proxy is in use, never which one. There
 is no allow-list on commands, matching the messages: the token is the access
 control.
 
+**The chip temperature line** (`format_chip_temp()`) reads the C6's on-die
+sensor through `driver/temperature_sensor.h`, which is why `esp_driver_tsens`
+is in `src/CMakeLists.txt`'s `REQUIRES`. Three things about it are decisions,
+not defaults:
+
+- **It is the die, not the room.** The WiFi radio and the backlight are in the
+  same package, so a pager sitting still reads some 10–20 °C above ambient.
+  The number answers "is the thing cooking?" and the string says *chip*
+  temperature for that reason — do not relabel it as an ambient reading.
+- **The sensor is installed, read and uninstalled inside the one call.**
+  `/status` is asked minutes apart at best, and a handle held open from boot
+  would keep the analogue front end powered for a number nobody is looking at.
+  The `(-10, 80)` range is the widest calibration offset the part has: a little
+  accuracy at room temperature traded for never saturating.
+- **A failure prints "unavailable" rather than dropping the line**, because a
+  status reply that silently loses a row reads like a firmware that has lost a
+  feature. One decimal only — the part is specified to about a degree, and a
+  second digit would be noise dressed as precision.
+
 ### Inline mode
 
 `inline_mode.c` answers `@thisbot ...` typed in any chat, member or not. It is
@@ -662,7 +681,8 @@ creating a new `<chat_id>/` directory. That is the collision.
   DevKitC's 8 MB, which is why `platformio.ini` overrides
   `board_upload.flash_size`.
 - `src/CMakeLists.txt` — globs `src/*.c`, so a new file needs no edit; the
-  `REQUIRES` list does, though (`esp_http_server` was added for the portal).
+  `REQUIRES` list does, though (`esp_http_server` was added for the portal,
+  `esp_driver_tsens` for the `/status` chip temperature).
 
 ### Browser flasher
 

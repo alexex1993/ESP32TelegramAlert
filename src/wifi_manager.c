@@ -252,6 +252,17 @@ static bool try_network(int slot)
         s_wifi_event_group, WIFI_CONNECTED_BIT,
         pdFALSE, pdFALSE, pdMS_TO_TICKS(APP_WIFI_CONNECT_WAIT_MS));
     if (bits & WIFI_CONNECTED_BIT) {
+        // The disconnect above went through the event handler, which flagged
+        // the monitor exactly as a real drop would. Clear it now that the link
+        // is back: leaving it set makes the monitor's own wait return
+        // immediately on the next lap and burn a full scan on a link that just
+        // came up under it. s_link_up is re-read after the clear because a
+        // genuine drop landing in that window would otherwise have its flag
+        // wiped here and go unnoticed until the next periodic scan.
+        xEventGroupClearBits(s_wifi_event_group, WIFI_LINK_LOST_BIT);
+        if (!s_link_up) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_LINK_LOST_BIT);
+        }
         s_last_switch_ms = esp_timer_get_time() / 1000;
         return true;
     }
