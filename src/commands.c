@@ -8,6 +8,7 @@
 #include <strings.h>
 #include <time.h>
 
+#include "driver/temperature_sensor.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -111,6 +112,51 @@ static const char *reset_reason_name(void)
     }
 }
 
+// The C6's on-die temperature sensor. It reads the die, not the room -- a
+// pager sitting still runs some 10-20 degrees above ambient with the WiFi
+// radio and the backlight in the same package -- so this answers "is the thing
+// cooking?", not "how warm is the flat".
+//
+// Installed, read and torn down inside the one call rather than held open from
+// boot: /status is asked minutes apart at best, and a handle kept alive would
+// keep the sensor's analogue front end powered for the sake of a number nobody
+// is looking at. The range picks the widest calibration offset the part has,
+// which costs a little accuracy at room temperature and never saturates.
+//
+// Any failure is reported as "unavailable" rather than swallowed: a status
+// reply that silently drops a line reads like a firmware that has lost a
+// feature.
+static void format_chip_temp(char *buf, size_t size)
+{
+    temperature_sensor_handle_t tsens = NULL;
+    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+
+    esp_err_t err = temperature_sensor_install(&cfg, &tsens);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "tsens install failed: %s", esp_err_to_name(err));
+        snprintf(buf, size, "%s", STR_CMD_STATUS_TEMP_UNAVAIL);
+        return;
+    }
+
+    float celsius = 0.0f;
+    err = temperature_sensor_enable(tsens);
+    if (err == ESP_OK) {
+        err = temperature_sensor_get_celsius(tsens, &celsius);
+        temperature_sensor_disable(tsens);
+    }
+    temperature_sensor_uninstall(tsens);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "tsens read failed: %s", esp_err_to_name(err));
+        snprintf(buf, size, "%s", STR_CMD_STATUS_TEMP_UNAVAIL);
+        return;
+    }
+
+    // One decimal: the part is specified to about a degree, so a second one
+    // would be noise dressed up as precision.
+    snprintf(buf, size, "%.1f \xC2\xB0\x43", celsius);  /* "°C" */
+}
+
 static void format_uptime(char *buf, size_t size)
 {
     int64_t total = esp_timer_get_time() / 1000000;
@@ -158,9 +204,11 @@ void commands_build_status(char *buf, size_t size)
     append(buf, size, &len, "%s\n", STR_CMD_STATUS_TITLE);
     append(buf, size, &len, "%s: %s (ESP-IDF %s)\n", STR_CMD_STATUS_FIRMWARE,
            app->version, app->idf_ver);
-    append(buf, size, &len, "%s: %s %s\n", STR_CMD_STATUS_BUILT, app->date, app->time);
 
     char scratch[40];
+    format_chip_temp(scratch, sizeof(scratch));
+    append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_TEMP, scratch);
+
     format_uptime(scratch, sizeof(scratch));
     append(buf, size, &len, "%s: %s\n", STR_CMD_STATUS_UPTIME, scratch);
 
