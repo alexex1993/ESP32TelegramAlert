@@ -18,6 +18,11 @@ ENV_NAME="esp32-c6-lcd-1_47"
 ESP_WEB_TOOLS_VERSION="10.4.0"
 CHIP_FAMILY="ESP32-C6"
 
+# Public address of the published site. The canonical link in web/index.html
+# points here too; robots.txt and sitemap.xml below are generated from it, so
+# the domain lives in exactly two places and never in three.
+SITE_URL="${FLASHER_SITE_URL:-https://pager.alexnew.ru}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/.pio/build/$ENV_NAME"
 SDKCONFIG="$ROOT/sdkconfig.$ENV_NAME"
@@ -91,6 +96,19 @@ sed -e "s|%%VERSION%%|$VERSION|g" \
     -e "s|%%BUILD_DATE%%|$BUILD_DATE|g" \
     "$ROOT/web/index.html" > "$OUT/index.html"
 
+# Static page assets: the screenshot on the front page, and any search-console
+# verification files dropped into web/ (google*.html, `yandex_*.html`). They are
+# copied by pattern rather than by name so adding one is a matter of putting the
+# file in web/ -- the verifier has to be served from the site root or the domain
+# stops being verified on the next deploy.
+cp "$ROOT/web/example.jpg" "$OUT/"
+for f in "$ROOT"/web/google*.html "$ROOT"/web/yandex_*.html; do
+  # An unmatched glob comes through literally, hence the existence check; it is
+  # a `continue` rather than an `&&` so a miss cannot fail the loop under -e.
+  [ -e "$f" ] || continue
+  cp "$f" "$OUT/"
+done
+
 # Three separate parts, not one merged image: merging would pad the gap between
 # the table and the app with 0xff and so wipe nvs on every update, taking the
 # bot token, the wifi credentials and the unread queue with it.
@@ -112,12 +130,41 @@ cat > "$OUT/manifest.json" <<JSON
 }
 JSON
 
+# --- Indexing ----------------------------------------------------------------
+#
+# The page is meant to be found by search engines, so robots.txt allows
+# everything; the firmware images are the one exception -- they are payload, not
+# documents, and a crawler pulling 1.5 MB of .bin on every visit is pure waste.
+# The esp-web-tools bundle stays crawlable on purpose: Googlebot renders the
+# page, and blocking its script would make the flash button vanish from the
+# rendered copy.
+cat > "$OUT/robots.txt" <<ROBOTS
+User-agent: *
+Allow: /
+Disallow: /*.bin\$
+
+Sitemap: $SITE_URL/sitemap.xml
+ROBOTS
+
+cat > "$OUT/sitemap.xml" <<SITEMAP
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>$SITE_URL/</loc>
+    <lastmod>$BUILD_DATE</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+</urlset>
+SITEMAP
+
 # Cloudflare Pages serves _headers itself; it is inert anywhere else.
 cat > "$OUT/_headers" <<'HEADERS'
 /*.bin
   Cache-Control: public, max-age=300
 /manifest.json
   Cache-Control: no-cache
+/example.jpg
+  Cache-Control: public, max-age=86400
 HEADERS
 
 echo "==> Done: $OUT ($VERSION)"
