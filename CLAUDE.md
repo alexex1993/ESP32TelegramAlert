@@ -59,7 +59,9 @@ pages from NVS starts blinking immediately rather than after the link is up.
 The language is applied before the fork so even the setup screen speaks the
 configured language when a previous partial set exists.
 
-Three FreeRTOS tasks, created in this order from `app_main`:
+Three FreeRTOS tasks, created in this order from `app_main` (plus a fourth,
+**wifi_mon**, on the station path — see the runtime monitor bullet under
+"Runtime settings and provisioning"):
 
 - **lvgl** (prio 2, `display.c`) — owns `lv_timer_handler()` and the flush
   callback. LVGL is not thread-safe: every `lv_*` call from another task must be
@@ -192,6 +194,24 @@ incidental:
 - `wifi_manager` is split into `init()` (netif + event loop + driver, exactly
   once) and `connect_sta()` / `start_ap()` (mode + config + start), because the
   two paths now share a single boot.
+- **The runtime WiFi monitor (`wifi_manager_start_monitor()`)** is armed by
+  `main.c` after the boot connect succeeds, and from then on a dropped link is
+  its business, not the event handler's (the handler's retry-then-FAIL logic
+  is boot-time only — when armed it just clears `s_link_up`, clears the
+  CONNECTED bit and flags the monitor). One task, two jobs: while up it scans
+  every `APP_WIFI_MONITOR_PERIOD_MS` (60 s) so the reachable configured
+  networks are known before it matters, and roams proactively when the current
+  AP sinks below `APP_WIFI_ROAM_RSSI_THRESHOLD_DBM` (−85 dBm) with an
+  alternative stronger by `APP_WIFI_ROAM_MARGIN_DB` (12 dB) — margin plus a
+  cooldown are the anti-flap. On a drop it scans, ranks the configured
+  networks by RSSI (dead one included — a rebooting AP is often back by then)
+  and reconnects to the best, doubling backoff up to 60 s **forever**: the
+  pager never reboots into the portal on its own at runtime, because the
+  queue/LED/screen all work offline and the configured networks may come back;
+  re-provisioning stays a long BOOT hold. The pager task needs no cooperation
+  with any of this — its poll fails during an outage, shows the offline
+  status and backs off 5 s until the link returns. The periodic scan steals
+  ~2 s of airtime, which the long poll absorbs under its socket timeout.
 
 #### Re-provisioning gesture
 

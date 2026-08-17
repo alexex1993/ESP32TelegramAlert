@@ -87,6 +87,11 @@ void app_main(void)
     ui_set_status(STR_TIME_SYNCING);
     sync_time();
 
+    // From here on a dropped link is the monitor's problem: it scans, picks
+    // the best configured network on air and reconnects, so the pager rides
+    // out a dead primary network without a reboot or the portal.
+    wifi_manager_start_monitor();
+
     // Mounts the TF card on the LCD's shared SPI bus; best-effort, the pager
     // runs without it. After this, sd_log_message() logs each paged message to
     // its own file under /sdcard/TelegramPager/<chat_id>/<date>/<time>.txt.

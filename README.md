@@ -88,7 +88,7 @@ image flashes to every device** and each is configured over WiFi.
 | Bot token | yes | as @BotFather gives it, `123456:AA…` |
 | WiFi name (SSID) | yes | 2.4 GHz — the ESP32-C6 has no 5 GHz radio |
 | WiFi password | no | leave empty for an open network |
-| WiFi networks 2 and 3 | no | fallbacks: if network 1 is unreachable, the pager tries the next one on the list |
+| WiFi networks 2 and 3 | no | fallbacks: the pager monitors the list in the background and switches to the best available network automatically — at boot and at runtime |
 | Timezone | yes | UTC offset in hours, −12…14; drives the `[HH:MM]` stamp, the card's folder names and `/status` |
 | Language | yes | English or Русский, for what the device itself writes |
 | Proxy | no | `None`, or `SOCKS5` + host, port and optional user/password |

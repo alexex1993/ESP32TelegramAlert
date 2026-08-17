@@ -125,12 +125,22 @@ the flush callback already byte-swaps and would double-swap.
 ## Architecture essentials (see CLAUDE.md for full detail)
 
 Three FreeRTOS tasks from `app_main`: **lvgl** (prio 2), **button** (prio 3),
-**pager** (prio 4) — none of which exist on the provisioning path, where
-`app_main` diverts into `provision_start()` (AP + DNS hijack + httpd) and never
-comes back. Network stack bottom-up: `net_conn.c` (+ optional
+**pager** (prio 4), plus a fourth on the station path — **wifi_mon** (prio 2,
+`wifi_manager_start_monitor()`) — none of which exist on the provisioning
+path, where `app_main` diverts into `provision_start()` (AP + DNS hijack +
+httpd) and never comes back. Network stack bottom-up: `net_conn.c` (+ optional
 `socks5.c`) → `https_client.c` (raw mbedTLS, not `esp_http_client`) →
 `telegram.c` (cJSON) → `pager_task.c`. `msg_queue.c` is the shared state
 between button and pager and is mutex-guarded.
+
+- **WiFi failover is the monitor's job once armed.** After the boot connect,
+  `wifi_manager_start_monitor()` owns link recovery: 60 s background scans,
+  proactive roam (threshold + margin + cooldown, anti-flap) and, on a drop,
+  scan → rank configured networks by RSSI → reconnect to the best, retrying
+  with backoff **forever** — never a reboot into the portal at runtime. The
+  event handler's retry-then-FAIL logic is boot-time only; when armed it just
+  flags the monitor. The pager poll needs no cooperation: it backs off 5 s
+  until the link returns.
 
 - **LVGL is not thread-safe.** Every `lv_*` from a non-lvgl task must be
   inside `display_lvgl_lock()`/`display_lvgl_unlock()`. The `ui_*` functions
