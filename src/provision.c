@@ -206,8 +206,34 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
 {
     memset(out, 0, sizeof(*out));
     form_get(body, "bot_token", out->bot_token, sizeof(out->bot_token));
-    form_get(body, "wifi_ssid", out->wifi_ssid, sizeof(out->wifi_ssid));
-    form_get(body, "wifi_password", out->wifi_password, sizeof(out->wifi_password));
+    // WiFi: up to three networks. Slot order is the try order at boot; a slot
+    // whose SSID is empty is ignored entirely (its password, if any, is
+    // dropped), and the filled slots are compacted to the front because the
+    // connect loop walks until the first empty SSID.
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "wifi_ssid_%d", i + 1);
+        form_get(body, key, out->wifi_ssid[i], sizeof(out->wifi_ssid[i]));
+        snprintf(key, sizeof(key), "wifi_password_%d", i + 1);
+        form_get(body, key, out->wifi_password[i], sizeof(out->wifi_password[i]));
+        if (out->wifi_ssid[i][0] == '\0') {
+            out->wifi_password[i][0] = '\0';
+        }
+    }
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        if (out->wifi_ssid[i][0] != '\0') {
+            continue;
+        }
+        for (int j = i + 1; j < APP_SETTINGS_WIFI_NETS_MAX; j++) {
+            if (out->wifi_ssid[j][0] != '\0') {
+                strlcpy(out->wifi_ssid[i], out->wifi_ssid[j], sizeof(out->wifi_ssid[i]));
+                strlcpy(out->wifi_password[i], out->wifi_password[j], sizeof(out->wifi_password[i]));
+                out->wifi_ssid[j][0] = '\0';
+                out->wifi_password[j][0] = '\0';
+                break;
+            }
+        }
+    }
     form_get(body, "proxy_host", out->proxy_host, sizeof(out->proxy_host));
     form_get(body, "proxy_user", out->proxy_user, sizeof(out->proxy_user));
     form_get(body, "proxy_pass", out->proxy_pass, sizeof(out->proxy_pass));
@@ -218,6 +244,14 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
         lang[0] = '\0';
         form_get(body, "language", lang, sizeof(lang));
         out->ui_language = (strcmp(lang, "russian") == 0) ? APP_LANG_RU : APP_LANG_EN;
+    }
+    {
+        // Unticked checkboxes are simply absent from the body, which is what
+        // makes "off" the default here without a hidden companion field.
+        char announce[8];
+        announce[0] = '\0';
+        form_get(body, "announce_boot", announce, sizeof(announce));
+        out->announce_on_boot = (announce[0] != '\0');
     }
     {
         char ptype[16];
@@ -235,7 +269,7 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
         snprintf(errbuf, errbuf_sz, "Bot token looks wrong (expected digits:letters).");
         return false;
     }
-    if (out->wifi_ssid[0] == '\0') {
+    if (out->wifi_ssid[0][0] == '\0') {
         snprintf(errbuf, errbuf_sz, "WiFi network name is required.");
         return false;
     }
@@ -325,10 +359,14 @@ static void html_escape(char *dst, size_t dst_size, const char *src)
 // frees. `err` is an optional error banner; `s` provides the pre-fill values.
 static char *build_page(const char *err, const app_settings_t *s)
 {
-    char e_tok[200], e_ssid[80], e_pass[80], e_ph[160], e_pu[120], e_pp[120];
+    char e_tok[200], e_ph[160], e_pu[120], e_pp[120];
+    char e_ssid[APP_SETTINGS_WIFI_NETS_MAX][80];
+    char e_pass[APP_SETTINGS_WIFI_NETS_MAX][80];
     ESC(e_tok, s->bot_token);
-    ESC(e_ssid, s->wifi_ssid);
-    ESC(e_pass, s->wifi_password);
+    for (int i = 0; i < APP_SETTINGS_WIFI_NETS_MAX; i++) {
+        ESC(e_ssid[i], s->wifi_ssid[i]);
+        ESC(e_pass[i], s->wifi_password[i]);
+    }
     ESC(e_ph, s->proxy_host);
     ESC(e_pu, s->proxy_user);
     ESC(e_pp, s->proxy_pass);
@@ -347,6 +385,11 @@ static char *build_page(const char *err, const app_settings_t *s)
         "border:1px solid #2c3540;background:#171c22;color:#e6e9ee;font-size:15px}"
         "input:focus,select:focus{outline:none;border-color:#4f7cc4}"
         ".row2{display:flex;gap:10px}.row2>div{flex:1}"
+        // The full-width input rule above would stretch a checkbox across the
+        // page, so the tick and its caption get their own row styling.
+        ".chk{display:flex;align-items:center;gap:10px;margin:14px 0 0}"
+        ".chk input{width:auto;margin:0}"
+        ".chk label{margin:0;color:#e6e9ee;font-size:15px}"
         "button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:8px;"
         "background:#2e6df6;color:#fff;font-size:16px;font-weight:600}"
         ".err{background:#3a1d1d;color:#ffb4b4;padding:10px 12px;border-radius:8px;"
@@ -365,10 +408,20 @@ static char *build_page(const char *err, const app_settings_t *s)
     buf_printf(&b, "<label>Bot token</label>"
                    "<input name=bot_token value=\"%s\" placeholder=\"123456:ABC-DEF...\">", e_tok);
 
-    buf_printf(&b, "<label>WiFi network name (SSID)</label>"
-                   "<input name=wifi_ssid value=\"%s\">", e_ssid);
+    buf_printf(&b, "<label>WiFi network 1 (primary)</label>"
+                   "<input name=wifi_ssid_1 value=\"%s\">", e_ssid[0]);
     buf_printf(&b, "<label>WiFi password</label>"
-                   "<input name=wifi_password value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass);
+                   "<input name=wifi_password_1 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[0]);
+    buf_printf(&b, "<label>WiFi network 2 (optional)</label>"
+                   "<input name=wifi_ssid_2 value=\"%s\">", e_ssid[1]);
+    buf_printf(&b, "<label>WiFi password</label>"
+                   "<input name=wifi_password_2 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[1]);
+    buf_printf(&b, "<label>WiFi network 3 (optional)</label>"
+                   "<input name=wifi_ssid_3 value=\"%s\">", e_ssid[2]);
+    buf_printf(&b, "<label>WiFi password</label>"
+                   "<input name=wifi_password_3 value=\"%s\" placeholder=\"(leave empty for open)\">", e_pass[2]);
+    buf_put(&b, "<p class=muted>If a network is unreachable, the pager tries the "
+                "next one on this list.</p>");
 
     buf_printf(&b, "<div class=row2><div><label>Timezone (UTC offset, hours)</label>"
                    "<input name=tz_offset type=number value=\"%d\" min=-12 max=14></div>", (int)s->tz_offset_hours);
@@ -378,6 +431,12 @@ static char *build_page(const char *err, const app_settings_t *s)
                    "</select></div></div>",
                s->ui_language == APP_LANG_EN ? " selected" : "",
                s->ui_language == APP_LANG_RU ? " selected" : "");
+
+    buf_printf(&b, "<div class=chk><input type=checkbox name=announce_boot id=ann value=1%s>"
+                   "<label for=ann>\xF0\x9F\x93\x9F Announce power-up in chats</label></div>",
+               s->announce_on_boot ? " checked" : "");
+    buf_put(&b, "<p class=muted>When it boots, the pager sends one message to "
+                "every chat that has written to it. Off by default.</p>");
 
     buf_printf(&b, "<label>Proxy</label><select name=proxy_type id=ptype onchange=tog()>"
                    "<option value=none%s>None (direct)</option>"
@@ -430,8 +489,9 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     // The form is small, but cap what we accept at a sane bound and read it in
     // one shot (httpd_req_recv loops internally on partial reads up to the
     // requested length when the body fits; large bodies are truncated, which
-    // then fails validation and re-renders the form).
-    static char body[2048];
+    // then fails validation and re-renders the form). 3072 leaves headroom for
+    // three fully percent-encoded SSID/password pairs plus the proxy fields.
+    static char body[3072];
     int total = (int)req->content_len;
     if (total < 0) {
         total = 0;

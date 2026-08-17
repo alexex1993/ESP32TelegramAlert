@@ -125,12 +125,22 @@ the flush callback already byte-swaps and would double-swap.
 ## Architecture essentials (see CLAUDE.md for full detail)
 
 Three FreeRTOS tasks from `app_main`: **lvgl** (prio 2), **button** (prio 3),
-**pager** (prio 4) — none of which exist on the provisioning path, where
-`app_main` diverts into `provision_start()` (AP + DNS hijack + httpd) and never
-comes back. Network stack bottom-up: `net_conn.c` (+ optional
+**pager** (prio 4), plus a fourth on the station path — **wifi_mon** (prio 2,
+`wifi_manager_start_monitor()`) — none of which exist on the provisioning
+path, where `app_main` diverts into `provision_start()` (AP + DNS hijack +
+httpd) and never comes back. Network stack bottom-up: `net_conn.c` (+ optional
 `socks5.c`) → `https_client.c` (raw mbedTLS, not `esp_http_client`) →
 `telegram.c` (cJSON) → `pager_task.c`. `msg_queue.c` is the shared state
 between button and pager and is mutex-guarded.
+
+- **WiFi failover is the monitor's job once armed.** After the boot connect,
+  `wifi_manager_start_monitor()` owns link recovery: 60 s background scans,
+  proactive roam (threshold + margin + cooldown, anti-flap) and, on a drop,
+  scan → rank configured networks by RSSI → reconnect to the best, retrying
+  with backoff **forever** — never a reboot into the portal at runtime. The
+  event handler's retry-then-FAIL logic is boot-time only; when armed it just
+  flags the monitor. The pager poll needs no cooperation: it backs off 5 s
+  until the link returns.
 
 - **LVGL is not thread-safe.** Every `lv_*` from a non-lvgl task must be
   inside `display_lvgl_lock()`/`display_lvgl_unlock()`. The `ui_*` functions
@@ -192,6 +202,35 @@ These are commented at the site; do not "clean them up":
   the device, or drop a page from the queue. The card shares SPI2 with the LCD,
   so the bus is set up once in `display_init()` (MISO is in the bus config for
   the card's sake, not the write-only panel's).
+- **`display_spi_bus_lock()` is what actually keeps the card and the panel off
+  each other** — the SPI driver's own bus lock is *not* enough, and this is the
+  reboot loop that appears once enough pages are queued. A flush *queues* its
+  pixel transfer and releases the bus while the DMA is still running, and the
+  card walking in there sets up a transaction on a busy peripheral (silent
+  assertions turn that into a bare `abort() was called at PC …`). So: the flush
+  path takes the guard in `lvgl_flush_cb()` and gives it back **from the
+  transfer-done ISR** — hence a binary semaphore, not a mutex — with a
+  hand-back on a failed `draw_bitmap()` since no interrupt is coming for a
+  transfer that was never queued; `sd_log.c` holds it across a whole card
+  operation, mount to `fclose()`, not per call. **Nothing under the guard may
+  take the LVGL lock** (the LVGL task waits for the guard while holding it, so
+  the reverse order deadlocks). Backlight (LEDC) and RGB LED (RMT) stay
+  outside it — neither touches SPI2.
+- **The getUpdates offset is persisted too** (`msg_store_save_offset()` /
+  `load_offset()`, key `offset` in the same `pager` namespace). Kept only in
+  RAM it makes every reboot re-download the batch it died in and push a
+  *second* copy of pages that were already queued and persisted, so the queue
+  grows by a message per restart. `pager_task` writes it as the **last** thing
+  in a lap — after the batch is on the card, in the queue and in flash — so a
+  crash above that line replays the batch, which is the right way round; that
+  is why the write does not live where `telegram_poll()` advances the value.
+  `msg_store_clear()` does not touch it: a queue-layout change says nothing
+  about what Telegram has already handed over.
+- **`/status`'s chip temperature reads the die, not the room** (`commands.c`,
+  `format_chip_temp()`, needs `esp_driver_tsens` in `REQUIRES`). The sensor is
+  installed and uninstalled inside the one call — `/status` is minutes apart at
+  best and a handle held open keeps the analogue front end powered — and any
+  failure prints "unavailable" rather than dropping the line.
 - **`STR_*` are runtime lookups, not literals** — never concatenate them with
   adjacent text or an `LV_SYMBOL_*`; format with `%s` (`ui_set_statusf()`,
   split `append()` calls in `commands.c`). See "UI strings" below.

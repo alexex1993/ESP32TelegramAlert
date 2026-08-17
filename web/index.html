@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title id="page-title">ESP32 Telegram Pager — flash from your browser</title>
 <meta id="page-desc" name="description" content="Flash the Waveshare ESP32-C6-LCD-1.47 straight from your browser, no esptool needed.">
+<!-- The page is meant to be found: indexing is explicitly allowed, and the
+     canonical is absolute so the pages.dev preview host cannot compete with it. -->
+<meta name="robots" content="index, follow">
+<meta name="googlebot" content="index, follow">
+<link rel="canonical" href="https://pager.alexnew.ru/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pager.alexnew.ru/">
+<meta property="og:site_name" content="ESP32 Telegram Pager">
+<meta property="og:title" id="og-title" content="ESP32 Telegram Pager — flash from your browser">
+<meta property="og:description" id="og-desc" content="Flash the Waveshare ESP32-C6-LCD-1.47 straight from your browser, no esptool needed.">
+<meta property="og:image" content="https://pager.alexnew.ru/example.jpg">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📟</text></svg>">
 <style>
   :root {
@@ -70,11 +82,11 @@
   h1 { margin: 0 0 .35rem; font-size: 1.75rem; letter-spacing: -.02em; }
   .sub { margin: 0 0 1rem; color: var(--muted); }
 
+  .demos { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 0 0 2rem; }
   .demo-link {
     display: inline-flex;
     align-items: center;
     gap: .4rem;
-    margin: 0 0 2rem;
     font-weight: 600;
     text-decoration: none;
   }
@@ -102,6 +114,18 @@
     cursor: pointer;
   }
   button.flash:hover { filter: brightness(1.08); }
+
+  .shot { margin: 1.75rem 0 0; }
+  .shot img {
+    display: block;
+    width: 100%;
+    max-width: 32rem;
+    height: auto;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .shot figcaption { margin: .6rem 0 0; font-size: .85rem; color: var(--muted); }
 
   .meta { margin: 1rem 0 0; font-size: .85rem; color: var(--muted); }
   .meta code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; font-size: .95em; }
@@ -150,8 +174,13 @@
   </div>
 
   <h1>ESP32 Telegram Pager</h1>
-  <p class="sub" id="t-sub"></p>
-  <a class="demo-link" href="https://www.youtube.com/shorts/OFUGBKv261c" target="_blank" rel="noopener">▶ DEMO</a>
+  <!-- Pre-filled with the English copy so a crawler that does not run the
+       language switcher still finds a described page, not an empty one. -->
+  <p class="sub" id="t-sub">Flash the Waveshare ESP32-C6-LCD-1.47 board straight from your browser — no esptool, no Python.</p>
+  <div class="demos">
+    <a class="demo-link" href="https://www.youtube.com/shorts/OFUGBKv261c" target="_blank" rel="noopener">▶ DEMO #1</a>
+    <a class="demo-link" href="https://www.youtube.com/shorts/CHrGNBdmHEU" target="_blank" rel="noopener">▶ DEMO #2</a>
+  </div>
 
   <div class="card">
     <esp-web-install-button manifest="./manifest.json">
@@ -159,6 +188,12 @@
       <p class="notice" id="t-unsupported" slot="unsupported"></p>
       <p class="notice" id="t-not-allowed" slot="not-allowed"></p>
     </esp-web-install-button>
+    <figure class="shot">
+      <img src="./example.jpg" id="t-shot-img"
+           alt="ESP32-C6 pager in a hand showing a Telegram message on its LCD"
+           width="2560" height="1349" loading="lazy" decoding="async">
+      <figcaption id="t-shot-cap"></figcaption>
+    </figure>
     <p class="meta" id="t-meta">Version <code>%%VERSION%%</code> · built %%BUILD_DATE%%</p>
   </div>
 
@@ -181,6 +216,8 @@
       desc: "Flash the Waveshare ESP32-C6-LCD-1.47 straight from your browser, no esptool needed.",
       sub: "Flash the Waveshare ESP32-C6-LCD-1.47 board straight from your browser — no esptool, no Python.",
       flashBtn: "Flash the board",
+      shotAlt: "ESP32-C6 pager in a hand showing a Telegram message on its LCD",
+      shotCap: "A paged message on the device: sender, text and the unread counter.",
       unsupported: 'This browser doesn’t support WebSerial. Open the page in <strong>Chrome, Edge or Opera</strong> on a computer (or Chrome on Android). Safari and Firefox don’t support WebSerial.',
       notAllowed: 'Flashing only works over HTTPS. Open the page at <code>https://</code>.',
       meta: 'Version <code>%%VERSION%%</code> · built %%BUILD_DATE%%',
@@ -206,6 +243,8 @@
       desc: "Прошивка Waveshare ESP32-C6-LCD-1.47 прямо из браузера, без установки esptool.",
       sub: "Прошивка платы Waveshare ESP32-C6-LCD-1.47 прямо из браузера — esptool и Python не нужны.",
       flashBtn: "Прошить плату",
+      shotAlt: "Пейджер на ESP32-C6 в руке: на экране сообщение из Telegram",
+      shotCap: "Пришедшее сообщение на устройстве: отправитель, текст и счётчик непрочитанных.",
       unsupported: 'Этот браузер не умеет WebSerial. Откройте страницу в <strong>Chrome, Edge или Opera</strong> на компьютере (или в Chrome на Android). Safari и Firefox WebSerial не поддерживают.',
       notAllowed: 'Прошивка возможна только по HTTPS. Откройте страницу по адресу <code>https://</code>.',
       meta: 'Версия <code>%%VERSION%%</code> · собрано %%BUILD_DATE%%',
@@ -235,8 +274,12 @@
     document.documentElement.lang = lang;
     document.getElementById('page-title').textContent = s.title;
     document.getElementById('page-desc').setAttribute('content', s.desc);
+    document.getElementById('og-title').setAttribute('content', s.title);
+    document.getElementById('og-desc').setAttribute('content', s.desc);
     document.getElementById('t-sub').textContent = s.sub;
     document.getElementById('t-flash-btn').textContent = s.flashBtn;
+    document.getElementById('t-shot-img').setAttribute('alt', s.shotAlt);
+    document.getElementById('t-shot-cap').textContent = s.shotCap;
     document.getElementById('t-unsupported').innerHTML = s.unsupported;
     document.getElementById('t-not-allowed').innerHTML = s.notAllowed;
     document.getElementById('t-meta').innerHTML = s.meta;

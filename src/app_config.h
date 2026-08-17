@@ -250,12 +250,43 @@
 // every single message would spend a flash write to sharpen a number nothing
 // reads that precisely.
 #define APP_CONTACTS_TOUCH_S      3600
-// Announce at all. Turning this off keeps the list (it is what /status counts
-// and what a future feature would reuse) but leaves the chats quiet on boot.
-#define APP_ANNOUNCE_ON_BOOT      1
+// Whether the announcement is sent at all is a per-device setting, not a knob
+// here: it is app_settings_t.announce_on_boot, ticked on the provisioning form
+// and off by default. Either way the list itself is kept -- it is what /status
+// counts and what a future feature would reuse.
 
 // ---- Networking ---------------------------------------------------------
+// Retries per configured network (see app_settings_t): wifi_manager walks the
+// up-to-three slots in order and gives each this many attempts before moving
+// to the next; only when every slot is exhausted does the boot fall back to
+// the provisioning portal.
 #define APP_WIFI_MAX_RETRY       10
+// ---- WiFi runtime monitor / failover --------------------------------------
+// After the boot connect succeeds, main.c arms a monitor task in wifi_manager
+// (wifi_manager_start_monitor). While the link is up it background-scans every
+// APP_WIFI_MONITOR_PERIOD_MS (a sweep costs ~2 s of airtime, which TCP absorbs
+// -- the long poll stalls briefly under its socket timeout and resumes), and
+// when the link drops it scans, ranks the configured networks by RSSI and
+// reconnects to the best visible one. It retries forever with backoff rather
+// than rebooting into the portal: the queue, the LED and the screen keep
+// working offline, and re-provisioning stays a long BOOT hold away.
+//
+// Wait per candidate during failover. Well above a WPA handshake; wrong
+// credentials usually fail faster than this with an AUTH error.
+#define APP_WIFI_CONNECT_WAIT_MS        12000
+// Idle period between proactive scans while connected.
+#define APP_WIFI_MONITOR_PERIOD_MS      60000
+// Proactive roam: while connected, if the current AP sinks below this RSSI
+// (dBm) and another configured network beats it by APP_WIFI_ROAM_MARGIN_DB,
+// switch before the link dies on its own. The margin and the cooldown below
+// are the anti-flap: two weak-but-usable networks must not ping-pong the
+// radio between them.
+#define APP_WIFI_ROAM_RSSI_THRESHOLD_DBM  (-85)
+#define APP_WIFI_ROAM_MARGIN_DB           12
+#define APP_WIFI_ROAM_COOLDOWN_MS         60000
+// Retry cadence once every visible candidate has failed: doubles up to the max.
+#define APP_WIFI_FAILOVER_BACKOFF_MIN_MS  10000
+#define APP_WIFI_FAILOVER_BACKOFF_MAX_MS  60000
 // Per-socket-read timeout. Must exceed APP_LONGPOLL_TIMEOUT_S so a quiet long
 // poll is not mistaken for a dead connection.
 #define APP_HTTP_SOCKET_TIMEOUT_MS  (APP_LONGPOLL_TIMEOUT_S * 1000 + 15000)

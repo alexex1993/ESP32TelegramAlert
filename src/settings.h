@@ -15,6 +15,10 @@
 // NVS traffic on the hot paths (the Telegram poll, the receipts).
 
 #define APP_SETTINGS_BOT_TOKEN_MAX  96
+// Up to three candidate networks, tried in order until one connects (see
+// wifi_manager_connect_sta). Slot 0 is the primary and the only required one;
+// slots 1/2 are optional fallbacks for when the primary is unreachable.
+#define APP_SETTINGS_WIFI_NETS_MAX  3
 #define APP_SETTINGS_WIFI_SSID_MAX  33
 #define APP_SETTINGS_WIFI_PASS_MAX  64
 #define APP_SETTINGS_PROXY_HOST_MAX 128
@@ -25,10 +29,17 @@
 
 typedef struct {
     char     bot_token[APP_SETTINGS_BOT_TOKEN_MAX];   // "<digits>:<aa...>"
-    char     wifi_ssid[APP_SETTINGS_WIFI_SSID_MAX];
-    char     wifi_password[APP_SETTINGS_WIFI_PASS_MAX];
+    // Candidate networks in try order. The list is compacted by the portal
+    // before saving, so the first empty SSID marks the end of it.
+    char     wifi_ssid[APP_SETTINGS_WIFI_NETS_MAX][APP_SETTINGS_WIFI_SSID_MAX];
+    char     wifi_password[APP_SETTINGS_WIFI_NETS_MAX][APP_SETTINGS_WIFI_PASS_MAX];
     int32_t  tz_offset_hours;                          // added to UTC for [HH:MM]
     int32_t  ui_language;                              // APP_LANG_EN / APP_LANG_RU
+    // Tell every remembered chat that the device is back, once, at boot (see
+    // contacts.c). Off unless the portal's checkbox was ticked: the pager is
+    // silent by default, and the announcement costs a TLS handshake per contact
+    // before the first poll.
+    bool     announce_on_boot;
     bool     proxy_enabled;
     char     proxy_host[APP_SETTINGS_PROXY_HOST_MAX];
     uint16_t proxy_port;

@@ -59,7 +59,9 @@ pages from NVS starts blinking immediately rather than after the link is up.
 The language is applied before the fork so even the setup screen speaks the
 configured language when a previous partial set exists.
 
-Three FreeRTOS tasks, created in this order from `app_main`:
+Three FreeRTOS tasks, created in this order from `app_main` (plus a fourth,
+**wifi_mon**, on the station path — see the runtime monitor bullet under
+"Runtime settings and provisioning"):
 
 - **lvgl** (prio 2, `display.c`) — owns `lv_timer_handler()` and the flush
   callback. LVGL is not thread-safe: every `lv_*` call from another task must be
@@ -128,7 +130,18 @@ that writes it. Together they replaced the old `.env` → `tools/gen_secrets.py`
 → `src/secrets.h` build step, so **one image flashes to every device** and
 everything that used to be a `SECRET_*` macro (`bot_token`, `wifi_ssid`,
 `wifi_password`, `tz_offset_hours`, `ui_language`, `proxy_*`) is now a field of
-`app_settings_t`.
+`app_settings_t` — as is `announce_on_boot`, which was never a secret but is a
+per-device choice and so belongs on the form rather than in `app_config.h` (see
+"Contacts and the boot announcement"). The WiFi pair became **up to three candidate networks**
+(`wifi_ssid[N]` / `wifi_password[N]`, NVS keys `wifi_ssid0`…`wifi_pass2`):
+`wifi_manager_connect_sta()` walks the slots in order and gives each
+`APP_WIFI_MAX_RETRY` attempts before moving on — a device whose primary
+network is down boots on a fallback instead of landing in the portal. Slots
+1/2 are optional (loaded without marking the set incomplete); the portal
+compacts the filled slots to the front before saving, so the first empty SSID
+marks the end of the list. The pre-multi-network single-pair keys
+(`wifi_ssid`/`wifi_pass`) are adopted into slot 0 when `wifi_ssid0` is absent
+and erased on the next save.
 
 Settings are loaded **once** at boot into a file-static copy and read afterwards
 through `settings_get()`, which returns a `const` pointer — no NVS traffic on
@@ -151,7 +164,8 @@ pointer but must not expect a value to change without a restart.
   `ui_language` (a garbage value would index past the string tables) and
   `tz_offset_hours` back to `APP_DEFAULT_TZ_OFFSET_HOURS`.
 - **A failed STA connect does not boot-loop.** `main.c` sets `force_ap` and
-  reboots into the portal instead — a pager taken to a new flat is recoverable
+  reboots into the portal instead — but only after `wifi_manager` has tried
+  every configured network — so a pager taken to a new flat is recoverable
   without a serial cable.
 
 The portal itself (`provision_start()`) brings up an **open** SoftAP, paints
@@ -173,13 +187,33 @@ incidental:
   (token must contain `:`, SSID required, TZ in −12…14, SOCKS5 needs host+port,
   RFC 1929 user and password set together or not at all). The portal must not
   be a way to store a half-config the runtime would choke on; on failure it
-  re-renders the form with a banner and a 400.
+  re-renders the form with a banner and a 400. The three WiFi slots are
+  compacted here (empty SSID drops its password too), so the runtime's
+  walk-until-empty-slot loop can never skip a configured network.
 - The page is built into one `realloc`-grown buffer and every pre-filled value
   goes through `html_escape()` — a token or SSID with a quote in it must not
   break out of the attribute.
 - `wifi_manager` is split into `init()` (netif + event loop + driver, exactly
   once) and `connect_sta()` / `start_ap()` (mode + config + start), because the
   two paths now share a single boot.
+- **The runtime WiFi monitor (`wifi_manager_start_monitor()`)** is armed by
+  `main.c` after the boot connect succeeds, and from then on a dropped link is
+  its business, not the event handler's (the handler's retry-then-FAIL logic
+  is boot-time only — when armed it just clears `s_link_up`, clears the
+  CONNECTED bit and flags the monitor). One task, two jobs: while up it scans
+  every `APP_WIFI_MONITOR_PERIOD_MS` (60 s) so the reachable configured
+  networks are known before it matters, and roams proactively when the current
+  AP sinks below `APP_WIFI_ROAM_RSSI_THRESHOLD_DBM` (−85 dBm) with an
+  alternative stronger by `APP_WIFI_ROAM_MARGIN_DB` (12 dB) — margin plus a
+  cooldown are the anti-flap. On a drop it scans, ranks the configured
+  networks by RSSI (dead one included — a rebooting AP is often back by then)
+  and reconnects to the best, doubling backoff up to 60 s **forever**: the
+  pager never reboots into the portal on its own at runtime, because the
+  queue/LED/screen all work offline and the configured networks may come back;
+  re-provisioning stays a long BOOT hold. The pager task needs no cooperation
+  with any of this — its poll fails during an outage, shows the offline
+  status and backs off 5 s until the link returns. The periodic scan steals
+  ~2 s of airtime, which the long poll absorbs under its socket timeout.
 
 #### Re-provisioning gesture
 
@@ -271,6 +305,25 @@ idle text would wipe the footer feedback before it could be read.
 The status reply reports *whether* a proxy is in use, never which one. There
 is no allow-list on commands, matching the messages: the token is the access
 control.
+
+**The chip temperature line** (`format_chip_temp()`) reads the C6's on-die
+sensor through `driver/temperature_sensor.h`, which is why `esp_driver_tsens`
+is in `src/CMakeLists.txt`'s `REQUIRES`. Three things about it are decisions,
+not defaults:
+
+- **It is the die, not the room.** The WiFi radio and the backlight are in the
+  same package, so a pager sitting still reads some 10–20 °C above ambient.
+  The number answers "is the thing cooking?" and the string says *chip*
+  temperature for that reason — do not relabel it as an ambient reading.
+- **The sensor is installed, read and uninstalled inside the one call.**
+  `/status` is asked minutes apart at best, and a handle held open from boot
+  would keep the analogue front end powered for a number nobody is looking at.
+  The `(-10, 80)` range is the widest calibration offset the part has: a little
+  accuracy at room temperature traded for never saturating.
+- **A failure prints "unavailable" rather than dropping the line**, because a
+  status reply that silently loses a row reads like a firmware that has lost a
+  feature. One decimal only — the part is specified to about a degree, and a
+  second digit would be noise dressed as precision.
 
 ### Inline mode
 
@@ -382,9 +435,20 @@ without being spoken to, which is why `telegram_send_message()` exists next to
   one handshake per boot.
 - The announcement runs *before* the first poll, which is what makes it mean "I
   have just come up", and costs one TLS handshake per contact — a few seconds
-  at the default 16. Set `APP_ANNOUNCE_ON_BOOT` to 0 to keep the list but stay
-  quiet. `/status` reports the count, since there is no other way to see the
-  list without a serial cable.
+  at the default 16. `/status` reports the count, since there is no other way to
+  see the list without a serial cable.
+- **Announcing at all is a per-device setting, off by default**
+  (`app_settings_t.announce_on_boot`, NVS key `announce`, the *Announce
+  power-up in chats* checkbox on the portal form) — not the compile-time
+  `APP_ANNOUNCE_ON_BOOT` it used to be, so one image serves both the pager that
+  should check in and the one that should stay quiet. The list is kept either way:
+  the switch is read once, in `pager_task`, and gates only the sending, so a
+  device that never announces still remembers who pages it and still counts
+  them in `/status`. Off is the default in three places that agree by
+  construction rather than by coincidence — an unticked checkbox is simply
+  absent from the POST body, `LOAD_U8B` reads a missing key as 0, and the same
+  missing key is what an image upgraded from the old macro finds. Turning it on
+  therefore always takes a deliberate tick of the box.
 - **`contacts_init()` failing is not fatal**, unlike `msg_store_init()`: losing
   the list costs an announcement, not a page someone is waiting to read, so the
   module logs and runs unpersisted for that session.
@@ -590,11 +654,12 @@ creating a new `<chat_id>/` directory. That is the collision.
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  `/last` limits, the inline-mode buffer sizes, the contact-list size and boot
-  announcement switch, the long-hold threshold, the provisioning AP
-  name/channel and the fallback TZ. Compile-time knobs only: nothing a user
-  configures per device lives here — and note that inline mode itself is not a
-  knob at all, it is switched on for the bot in BotFather.
+  `/last` limits, the inline-mode buffer sizes, the contact-list size, the
+  long-hold threshold, the provisioning AP name/channel and the fallback TZ.
+  Compile-time knobs only: nothing a user configures per device lives here —
+  which is why the boot announcement's on/off switch moved out of here and into
+  `settings.h`, while the list size it walks stayed. Note also that inline mode
+  itself is not a knob at all, it is switched on for the bot in BotFather.
 - `src/settings.h` / `settings.c` — the runtime, per-device settings (NVS `cfg`).
   Anything a user sets on the portal form belongs here, not in `app_config.h`.
 - `src/ui_strings.h` — the both-language string list (see below).
@@ -630,7 +695,8 @@ creating a new `<chat_id>/` directory. That is the collision.
   DevKitC's 8 MB, which is why `platformio.ini` overrides
   `board_upload.flash_size`.
 - `src/CMakeLists.txt` — globs `src/*.c`, so a new file needs no edit; the
-  `REQUIRES` list does, though (`esp_http_server` was added for the portal).
+  `REQUIRES` list does, though (`esp_http_server` was added for the portal,
+  `esp_driver_tsens` for the `/status` chip temperature).
 
 ### Browser flasher
 

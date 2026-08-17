@@ -10,11 +10,22 @@
 // start_ap().
 void wifi_manager_init(void);
 
-// Brings up the station interface against the SSID/password in settings and
-// blocks until an IP is acquired or APP_WIFI_MAX_RETRY attempts have failed.
-// Returns ESP_FAIL on exhaustion -- the caller is expected to fall back to the
-// provisioning AP rather than spin forever on bad credentials.
+// Brings up the station interface and walks the configured networks (up to
+// three, in slot order -- see app_settings_t) until one acquires an IP,
+// giving each APP_WIFI_MAX_RETRY attempts. Returns ESP_FAIL when every
+// configured network is exhausted -- the caller is expected to fall back to
+// the provisioning AP rather than spin forever on bad credentials.
 esp_err_t wifi_manager_connect_sta(void);
+
+// Arms the runtime monitor (idempotent). Call once from app_main after
+// connect_sta() succeeds, before the pager starts. From then on a dropped
+// link no longer blind-retries the dead AP: the monitor scans, ranks the
+// configured networks by RSSI and reconnects to the best visible one,
+// retrying with backoff indefinitely -- the device never reboots into the
+// portal on its own. While up it also background-scans periodically and may
+// roam proactively when the current AP fades and a configured alternative is
+// decisively stronger (threshold/margin/cooldown in app_config.h).
+void wifi_manager_start_monitor(void);
 
 // Brings up an open SoftAP named `ssid` with a DHCP server, for first-boot
 // provisioning. The AP runs on the ESP-IDF default 192.168.4.1; the URL to
