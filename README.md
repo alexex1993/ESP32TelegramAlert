@@ -91,6 +91,7 @@ image flashes to every device** and each is configured over WiFi.
 | WiFi networks 2 and 3 | no | fallbacks: the pager monitors the list in the background and switches to the best available network automatically — at boot and at runtime |
 | Timezone | yes | UTC offset in hours, −12…14; drives the `[HH:MM]` stamp, the card's folder names and `/status` |
 | Language | yes | English or Русский, for what the device itself writes |
+| Announce power-up in chats | no | unticked by default: tick it and the pager writes 📟 *Pager is online* to everyone who has paged it after every restart |
 | Proxy | no | `None`, or `SOCKS5` + host, port and optional user/password |
 
 The form is validated before anything is stored, so a half-filled proxy or a
@@ -204,20 +205,23 @@ Telegram rewrites commands in groups.
 ### Boot announcement
 
 The pager remembers every chat that has written to it — pages and commands
-alike — and once the WiFi is up after a restart it sends each of them a single
-line:
+alike — and, if you tick **Announce power-up in chats** on the setup form, it
+sends each of them a single line once the WiFi is up after a restart:
 
 ```
 📟 Pager is online
 ```
 
 A pager that lost power otherwise leaves the people paging it unable to tell
-"nobody has written" from "it has been off since Tuesday". The list holds 16
-chats, keyed on the chat rather than the person (a group is one entry and is
-told in the group), survives reboots in flash, and drops its least recently seen
-entry when full. `/status` reports how many are on it. Pages sent through inline
-mode belong to no chat, so they add nobody. Set `APP_ANNOUNCE_ON_BOOT` to `0` in
-`src/app_config.h` to keep the list but stay quiet.
+"nobody has written" from "it has been off since Tuesday". The checkbox is
+**off by default**, since a device that reboots often would otherwise write to
+everyone every time; re-open the portal (hold BOOT for 5 s) to change it.
+
+Either way the list is kept: it holds 16 chats, keyed on the chat rather than
+the person (a group is one entry and is told in the group), survives reboots in
+flash, and drops its least recently seen entry when full. `/status` reports how
+many are on it. Pages sent through inline mode belong to no chat, so they add
+nobody.
 
 ## Inline mode
 

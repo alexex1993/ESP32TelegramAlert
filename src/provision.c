@@ -246,6 +246,14 @@ static bool parse_and_validate(const char *body, app_settings_t *out, char *errb
         out->ui_language = (strcmp(lang, "russian") == 0) ? APP_LANG_RU : APP_LANG_EN;
     }
     {
+        // Unticked checkboxes are simply absent from the body, which is what
+        // makes "off" the default here without a hidden companion field.
+        char announce[8];
+        announce[0] = '\0';
+        form_get(body, "announce_boot", announce, sizeof(announce));
+        out->announce_on_boot = (announce[0] != '\0');
+    }
+    {
         char ptype[16];
         ptype[0] = '\0';
         form_get(body, "proxy_type", ptype, sizeof(ptype));
@@ -377,6 +385,11 @@ static char *build_page(const char *err, const app_settings_t *s)
         "border:1px solid #2c3540;background:#171c22;color:#e6e9ee;font-size:15px}"
         "input:focus,select:focus{outline:none;border-color:#4f7cc4}"
         ".row2{display:flex;gap:10px}.row2>div{flex:1}"
+        // The full-width input rule above would stretch a checkbox across the
+        // page, so the tick and its caption get their own row styling.
+        ".chk{display:flex;align-items:center;gap:10px;margin:14px 0 0}"
+        ".chk input{width:auto;margin:0}"
+        ".chk label{margin:0;color:#e6e9ee;font-size:15px}"
         "button{width:100%;margin-top:18px;padding:13px;border:0;border-radius:8px;"
         "background:#2e6df6;color:#fff;font-size:16px;font-weight:600}"
         ".err{background:#3a1d1d;color:#ffb4b4;padding:10px 12px;border-radius:8px;"
@@ -418,6 +431,12 @@ static char *build_page(const char *err, const app_settings_t *s)
                    "</select></div></div>",
                s->ui_language == APP_LANG_EN ? " selected" : "",
                s->ui_language == APP_LANG_RU ? " selected" : "");
+
+    buf_printf(&b, "<div class=chk><input type=checkbox name=announce_boot id=ann value=1%s>"
+                   "<label for=ann>\xF0\x9F\x93\x9F Announce power-up in chats</label></div>",
+               s->announce_on_boot ? " checked" : "");
+    buf_put(&b, "<p class=muted>When it boots, the pager sends one message to "
+                "every chat that has written to it. Off by default.</p>");
 
     buf_printf(&b, "<label>Proxy</label><select name=proxy_type id=ptype onchange=tog()>"
                    "<option value=none%s>None (direct)</option>"

@@ -328,20 +328,20 @@ static void pager_task(void *arg)
     // carry the unread signal until a key is pressed.
     screen_arm_off();
 
-#if APP_ANNOUNCE_ON_BOOT
     // Tell everyone who has ever paged this device that it is back. Before the
     // first poll rather than after one, because that is what makes the message
     // mean "I have just come up" -- and it costs a handshake per contact, so
     // the poll it delays would have been delayed by the same seconds anyway.
     // Failures are logged inside contacts_announce() and cost nothing else.
-    if (contacts_count() > 0) {
+    // Off unless the portal's checkbox asked for it: the contact list is kept
+    // either way (it is what /status counts), the chats just stay quiet.
+    if (settings_get()->announce_on_boot && contacts_count() > 0) {
         ui_set_status(STR_BOOT_ANNOUNCING);
         size_t sent = contacts_announce(STR_BOOT_ANNOUNCE);
         ESP_LOGI(TAG, "boot announcement reached %u of %u contact(s)",
                  (unsigned)sent, (unsigned)contacts_count());
         idle_status();
     }
-#endif
 
     // Static, not locals: the messages alone are ~10 kB at APP_MSG_TEXT_MAX,
     // and the same stack has to hold the TLS handshake and chain verification

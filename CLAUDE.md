@@ -130,7 +130,9 @@ that writes it. Together they replaced the old `.env` → `tools/gen_secrets.py`
 → `src/secrets.h` build step, so **one image flashes to every device** and
 everything that used to be a `SECRET_*` macro (`bot_token`, `wifi_ssid`,
 `wifi_password`, `tz_offset_hours`, `ui_language`, `proxy_*`) is now a field of
-`app_settings_t`. The WiFi pair became **up to three candidate networks**
+`app_settings_t` — as is `announce_on_boot`, which was never a secret but is a
+per-device choice and so belongs on the form rather than in `app_config.h` (see
+"Contacts and the boot announcement"). The WiFi pair became **up to three candidate networks**
 (`wifi_ssid[N]` / `wifi_password[N]`, NVS keys `wifi_ssid0`…`wifi_pass2`):
 `wifi_manager_connect_sta()` walks the slots in order and gives each
 `APP_WIFI_MAX_RETRY` attempts before moving on — a device whose primary
@@ -433,9 +435,20 @@ without being spoken to, which is why `telegram_send_message()` exists next to
   one handshake per boot.
 - The announcement runs *before* the first poll, which is what makes it mean "I
   have just come up", and costs one TLS handshake per contact — a few seconds
-  at the default 16. Set `APP_ANNOUNCE_ON_BOOT` to 0 to keep the list but stay
-  quiet. `/status` reports the count, since there is no other way to see the
-  list without a serial cable.
+  at the default 16. `/status` reports the count, since there is no other way to
+  see the list without a serial cable.
+- **Announcing at all is a per-device setting, off by default**
+  (`app_settings_t.announce_on_boot`, NVS key `announce`, the *Announce
+  power-up in chats* checkbox on the portal form) — not the compile-time
+  `APP_ANNOUNCE_ON_BOOT` it used to be, so one image serves both the pager that
+  should check in and the one that should stay quiet. The list is kept either way:
+  the switch is read once, in `pager_task`, and gates only the sending, so a
+  device that never announces still remembers who pages it and still counts
+  them in `/status`. Off is the default in three places that agree by
+  construction rather than by coincidence — an unticked checkbox is simply
+  absent from the POST body, `LOAD_U8B` reads a missing key as 0, and the same
+  missing key is what an image upgraded from the old macro finds. Turning it on
+  therefore always takes a deliberate tick of the box.
 - **`contacts_init()` failing is not fatal**, unlike `msg_store_init()`: losing
   the list costs an announcement, not a page someone is waiting to read, so the
   module logs and runs unpersisted for that session.
@@ -641,11 +654,12 @@ creating a new `<chat_id>/` directory. That is the collision.
 ### Config surfaces
 
 - `src/app_config.h` — board pins, queue sizes, timeouts, Telegram tuning, the
-  `/last` limits, the inline-mode buffer sizes, the contact-list size and boot
-  announcement switch, the long-hold threshold, the provisioning AP
-  name/channel and the fallback TZ. Compile-time knobs only: nothing a user
-  configures per device lives here — and note that inline mode itself is not a
-  knob at all, it is switched on for the bot in BotFather.
+  `/last` limits, the inline-mode buffer sizes, the contact-list size, the
+  long-hold threshold, the provisioning AP name/channel and the fallback TZ.
+  Compile-time knobs only: nothing a user configures per device lives here —
+  which is why the boot announcement's on/off switch moved out of here and into
+  `settings.h`, while the list size it walks stayed. Note also that inline mode
+  itself is not a knob at all, it is switched on for the bot in BotFather.
 - `src/settings.h` / `settings.c` — the runtime, per-device settings (NVS `cfg`).
   Anything a user sets on the portal form belongs here, not in `app_config.h`.
 - `src/ui_strings.h` — the both-language string list (see below).

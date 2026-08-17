@@ -31,6 +31,10 @@ static const char *NVS_NAMESPACE = "cfg";
 #define KEY_WIFI_PASS_LEGACY "wifi_pass"
 #define KEY_TZ           "tz"
 #define KEY_LANG         "lang"
+// u8: 1 => announce the boot to every remembered contact. Absent reads as 0,
+// which is both the default for a new device and what an image upgraded from
+// the compile-time APP_ANNOUNCE_ON_BOOT gets until the form is submitted again.
+#define KEY_ANNOUNCE     "announce"
 #define KEY_PROXY_EN     "proxy_en"
 #define KEY_PROXY_HOST   "proxy_host"
 #define KEY_PROXY_PORT   "proxy_port"
@@ -107,6 +111,7 @@ bool settings_load(app_settings_t *out)
     LOAD_STR_OPT(KEY_WIFI_PASS2, out->wifi_password[2]);
     LOAD_I32(KEY_TZ, &out->tz_offset_hours);
     LOAD_I32(KEY_LANG, &out->ui_language);
+    LOAD_U8B(KEY_ANNOUNCE, &out->announce_on_boot);
     LOAD_U8B(KEY_PROXY_EN, &out->proxy_enabled);
     LOAD_STR(KEY_PROXY_HOST, out->proxy_host);
     LOAD_U16(KEY_PROXY_PORT, &out->proxy_port);
@@ -181,6 +186,7 @@ esp_err_t settings_save(const app_settings_t *s)
     nvs_erase_key(h, KEY_WIFI_PASS_LEGACY);
     SAVE_I32(KEY_TZ, s->tz_offset_hours);
     SAVE_I32(KEY_LANG, s->ui_language);
+    nvs_set_u8(h, KEY_ANNOUNCE, s->announce_on_boot ? 1 : 0);
     nvs_set_u8(h, KEY_PROXY_EN, s->proxy_enabled ? 1 : 0);
     SAVE_STR(KEY_PROXY_HOST, s->proxy_host);
     SAVE_U16(KEY_PROXY_PORT, s->proxy_port);

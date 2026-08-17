@@ -35,6 +35,11 @@ typedef struct {
     char     wifi_password[APP_SETTINGS_WIFI_NETS_MAX][APP_SETTINGS_WIFI_PASS_MAX];
     int32_t  tz_offset_hours;                          // added to UTC for [HH:MM]
     int32_t  ui_language;                              // APP_LANG_EN / APP_LANG_RU
+    // Tell every remembered chat that the device is back, once, at boot (see
+    // contacts.c). Off unless the portal's checkbox was ticked: the pager is
+    // silent by default, and the announcement costs a TLS handshake per contact
+    // before the first poll.
+    bool     announce_on_boot;
     bool     proxy_enabled;
     char     proxy_host[APP_SETTINGS_PROXY_HOST_MAX];
     uint16_t proxy_port;

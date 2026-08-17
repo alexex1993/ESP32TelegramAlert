@@ -250,9 +250,10 @@
 // every single message would spend a flash write to sharpen a number nothing
 // reads that precisely.
 #define APP_CONTACTS_TOUCH_S      3600
-// Announce at all. Turning this off keeps the list (it is what /status counts
-// and what a future feature would reuse) but leaves the chats quiet on boot.
-#define APP_ANNOUNCE_ON_BOOT      1
+// Whether the announcement is sent at all is a per-device setting, not a knob
+// here: it is app_settings_t.announce_on_boot, ticked on the provisioning form
+// and off by default. Either way the list itself is kept -- it is what /status
+// counts and what a future feature would reuse.
 
 // ---- Networking ---------------------------------------------------------
 // Retries per configured network (see app_settings_t): wifi_manager walks the
